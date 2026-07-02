@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:firebase_core/firebase_core.dart';
@@ -30,15 +32,8 @@ Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Firebase.initializeApp();
 
-  // Bildirimleri dinlemeye başla
+  // Arka plan bildirim handler'i runApp oncesinde kaydedilmelidir.
   FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
-
-  // === 1. HABER BİLDİRİMLERİNE ABONE OL ===
-  // Admin panelinden "topics/all" kanalına gönderilen bildirimleri almak için
-  await FirebaseMessaging.instance.subscribeToTopic('all');
-
-  // İzin iste (iOS için özellikle gerekli)
-  await FirebaseMessaging.instance.requestPermission();
 
   // Kayıtlı temayı yükle
   final prefs = await SharedPreferences.getInstance();
@@ -46,6 +41,22 @@ Future<void> main() async {
   themeNotifier.value = isDark ? ThemeMode.dark : ThemeMode.light;
 
   runApp(const MyApp());
+
+  // Ağ veya Google servisleri yavaş olsa bile ilk ekranın açılmasını engelleme.
+  unawaited(_configureMessaging());
+}
+
+Future<void> _configureMessaging() async {
+  try {
+    await FirebaseMessaging.instance.requestPermission().timeout(
+      const Duration(seconds: 8),
+    );
+    await FirebaseMessaging.instance
+        .subscribeToTopic('all')
+        .timeout(const Duration(seconds: 8));
+  } catch (_) {
+    // Bildirim kurulumu daha sonra tekrar denenebilir; uygulama açılışı sürer.
+  }
 }
 
 class MyApp extends StatelessWidget {

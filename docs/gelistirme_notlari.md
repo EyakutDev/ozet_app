@@ -44,6 +44,18 @@ Ozet App, Firebase tabanli bir Flutter haber/ozet uygulamasidir.
 
 - Auth ekranindan girissiz devam edildiginde ana sayfa acilir.
 - Kullanici yoksa partner alani bos kalmak yerine ornek detoks karti gosterir.
+- Ana sayfadaki detoks, partner ve durum kartlari ortak kart kabugu, sakin golge, mini ikon alanlari ve kompakt durum hiyerarsisiyle yenilendi.
+- Partner durumlari hizli his secenekleriyle gelistirildi; kullanici ayrica partner kartinda gorunecek 80 karakterlik mini not birakabilir.
+- Partnerine cizim gonderme ozelliginin ilk surumu eklendi; cizimler Firestore'da normalize stroke listesi olarak tutulur ve partner kartinda onizleme olarak gosterilir.
+- Durum guncelleme penceresine `Paylastiklarin` bolumu eklendi; mini not ve cizim varsa burada kart olarak gorunur ve kendi silme butonlariyla temizlenir.
+- Paylasilan mini not ve cizim silme islemleri onay dialoguna baglandi.
+- Hazir durumlar iki satir grid yerine yatay kaydirilabilir tek satir chip yapisina tasindi.
+- Hazir durum emojileri Material ikon tabanli durum anahtarlarina tasindi; eski emoji kayitlari geriye uyumlu gosterilir.
+- Durum/not/cizim islemleri tema uyumlu basari-hata mesajlari gosterir.
+- Partner kartinda not ve cizim ayni anda varsa kucuk kartta `Not + cizim` etiketiyle cizim onizlemesi gosterilir.
+- Partner karti cizim odakli hale getirildi; partnerin son cizimi ana alanda daha buyuk gorunur, durum satiri daha kompakt tutulur.
+- Partner not paylastiysa kart basliginin yaninda kucuk bir bildirim noktasi gosterilir.
+- Partner kartina basilinca partnerin son 3 durum/not/cizim paylasimi detay panelinde listelenir.
 
 ### Ayarlar Ekrani
 
@@ -148,7 +160,22 @@ Uygulama genelindeki hata, basari ve bilgi snackbar mesajlarini tema uyumlu tek 
 - `_buildConnectPage`: Partner yoksa eslesme ayarlarina yonlendirir.
 - `_buildPartnerPage`: Eslesilen partnerin durumunu gosterir.
 - `_buildMyStatusPage`: Kullanicinin kendi durumunu gosterir.
+- `_buildCardShell`: Ana sayfadaki detoks ve partner kartlari icin ortak kart kabugunu olusturur.
+- `_buildHeaderRow`: Kart basligi, sayfa noktasi ve mini ikon alanini uretir.
+- `_buildStatusBubble`: Partner veya kullanici durum ikonunu kompakt yuvarlak alanda gosterir.
+- `_statusIconData`: Firestore'daki durum ikon anahtarlarini Material ikonlara cevirir.
+- `_buildStatusMark`: Yeni ikon anahtarlarini ikon, eski emoji kayitlarini metin olarak gosterir.
 - `_showStatusPicker`: Durum secme/guncelleme bottom sheet'ini acar.
+- `_updateStatus`: Kullanicinin `statusIcon`, `statusText` ve `lastUpdated` alanlarini Firestore'a yazar.
+- `_sendPartnerNote`: Partner kartinda gorunecek `partnerNote` bilgisini Firestore'a yazar ve partner bildirimini tetikler.
+- `_deletePartnerNote`: Gonderilen mini not alanlarini Firestore dokumanindan temizler.
+- `_showSketchComposer`: Basit cizim alanini acar.
+- `_sendPartnerSketch`: Partner kartinda gorunecek cizim stroke verisini Firestore'a yazar.
+- `_deletePartnerSketch`: Gonderilen cizim verisini Firestore dokumanindan temizler.
+- _savePartnerShare: Durum, mini not ve cizim paylasimlarini partnerShares listesine yazar ve listeyi son 3 kayitla sinirlar.
+- _deletePartnerShareType: Mini not veya cizim silindiginde ilgili tipteki gecmis paylasim kayitlarini temizler.
+- _showPartnerSharesSheet: Partner kartina basilinca partnerin son paylasimlarini detay panelinde gosterir.
+- _partnerSharesFromData: Yeni partnerShares listesini okur; eski kullanicilar icin mevcut son durum/not/cizim alanlarindan fallback uretir.
 - `_notifyPartner`: Partnerin cihaz tokenina bildirim gonderir.
 
 ## Veri Modeli Notlari
@@ -166,6 +193,29 @@ news/{docId}
 
 `createdAt` yoksa tarih gosterilmez. `detail` yoksa detay dialogunda `summary` kullanilir.
 
+Partner durumlari icin `users/{uid}` dokumaninda kullanilan alanlar:
+
+```text
+users/{uid}
+- statusIcon
+- statusText
+- lastUpdated
+- partnerNote
+- partnerNoteUpdatedAt
+- partnerSketch
+- partnerShares
+  - id
+  - type: status | note | sketch
+  - text
+  - icon
+  - strokes
+  - createdAt
+```
+
+`partnerNote`, notu yazan kullanicinin dokumaninda tutulur; eslesilen kisi partner kartinda bu notu okur.
+`partnerSketch`, cizimi yapan kullanicinin dokumaninda tutulur; eslesilen kisi partner kartinda kucuk onizleme olarak gorur.
+
+partnerShares, durum/not/cizim paylasimlarinin son 3 kaydini tutar; ana kart son cizimi, detay paneli ise bu sinirli gecmisi kullanir.
 ## Sonraki Isler
 
 - Eski kullanilmayan haber karti fonksiyonunu temizlemek.
