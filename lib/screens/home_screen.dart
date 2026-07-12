@@ -6,6 +6,8 @@ import 'package:firebase_messaging/firebase_messaging.dart'; // <-- YENİ: Bildi
 import 'dart:ui' as ui;
 import 'package:ozet_app/screens/settings_screen.dart';
 import 'package:ozet_app/widgets/partner_widget.dart';
+import 'package:ozet_app/widgets/app_feedback.dart';
+import 'package:ozet_app/screens/news_webview_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({Key? key}) : super(key: key);
@@ -67,6 +69,28 @@ class _HomeScreenState extends State<HomeScreen> {
       }, SetOptions(merge: true)); // Mevcut verileri silmeden sadece bunu ekler
       print("Cihaz Token'ı başarıyla kaydedildi: $token");
     }
+  }
+
+  void _openSourceUrl(String sourceUrl, String title) {
+    final uri = Uri.tryParse(sourceUrl.trim());
+    final isWebUrl =
+        uri != null && (uri.scheme == 'http' || uri.scheme == 'https');
+
+    if (!isWebUrl) {
+      AppFeedback.show(
+        context,
+        'Kaynak bağlantısı geçersiz.',
+        type: AppFeedbackType.error,
+      );
+      return;
+    }
+
+    Navigator.of(context, rootNavigator: true).pop();
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => NewsWebViewScreen(url: uri.toString(), title: title),
+      ),
+    );
   }
 
   @override
@@ -295,21 +319,35 @@ class _HomeScreenState extends State<HomeScreen> {
           return const Center(child: CircularProgressIndicator());
         }
 
+        final visibleDocs = snapshot.data!.docs.where(_isVisibleNews).toList();
+
+        if (visibleDocs.isEmpty) {
+          return Padding(
+            padding: const EdgeInsets.only(top: 24),
+            child: Text(
+              "Yayında haber yok.",
+              textAlign: TextAlign.center,
+              style: GoogleFonts.kadwa(fontSize: 14, color: altYaziRengi),
+            ),
+          );
+        }
+
         return ListView.builder(
           padding: const EdgeInsets.only(top: 8),
-          itemCount: snapshot.data!.docs.length,
+          itemCount: visibleDocs.length,
           shrinkWrap: true, // ScrollView içinde olduğu için gerekli
           physics:
               const NeverScrollableScrollPhysics(), // Ana scroll'u kullansın
           itemBuilder: (context, index) {
-            var data =
-                snapshot.data!.docs[index].data() as Map<String, dynamic>;
+            final data = visibleDocs[index].data() as Map<String, dynamic>;
             return _buildModernNewsCard(
-              title: data['title'] ?? '',
-              summary: data['summary'] ?? '',
-              detail: data['detail'] ?? '',
-              source: data['source'] ?? 'Ozet App',
-              createdAt: data['createdAt'],
+              title: _textField(data, 'title'),
+              summary: _textField(data, 'summary'),
+              detail: _textField(data, 'detail'),
+              source: _textField(data, 'source', fallback: 'Ozet App'),
+              category: _textField(data, 'category'),
+              sourceUrl: _textField(data, 'sourceUrl'),
+              createdAt: data['publishedAt'] ?? data['createdAt'],
               kartRengi: kartRengi,
               yaziRengi: yaziRengi,
               altYaziRengi: altYaziRengi,
@@ -321,6 +359,48 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
+  String _textField(
+    Map<String, dynamic> data,
+    String key, {
+    String fallback = '',
+  }) {
+    final value = data[key];
+    if (value is! String) return fallback;
+    final trimmed = value.trim();
+    return trimmed.isEmpty ? fallback : trimmed;
+  }
+
+  // RSS taslaklari ve admin onayi bekleyen haberler mobil akista gorunmez.
+  bool _isVisibleNews(QueryDocumentSnapshot doc) {
+    final data = doc.data() as Map<String, dynamic>;
+    final published = data['published'];
+    final status = (data['status'] as String?)?.trim().toLowerCase();
+
+    if (published == false) return false;
+    if (status == 'draft' || status == 'rejected') return false;
+    return published == true || status == 'published' || status == null;
+  }
+
+  Widget _buildNewsMetaChip(String label, Color textColor) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      decoration: BoxDecoration(
+        color: const Color(0xFF9EC8ED).withValues(alpha: 0.16),
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Text(
+        label,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: GoogleFonts.kadwa(
+          fontSize: 11,
+          fontWeight: FontWeight.bold,
+          color: textColor,
+        ),
+      ),
+    );
+  }
+
   // --- Tekil Haber Kartı Tasarımı ---
   // Admin panelinden gelen mevcut haber alanlarını bozmadan modern kart olarak çizer.
   Widget _buildModernNewsCard({
@@ -328,6 +408,8 @@ class _HomeScreenState extends State<HomeScreen> {
     required String summary,
     required String detail,
     required String source,
+    required String category,
+    required String sourceUrl,
     required dynamic createdAt,
     required Color kartRengi,
     required Color yaziRengi,
@@ -360,6 +442,7 @@ class _HomeScreenState extends State<HomeScreen> {
             detail,
             summary,
             source,
+            sourceUrl,
             kartRengi,
             yaziRengi,
           ),
@@ -370,30 +453,11 @@ class _HomeScreenState extends State<HomeScreen> {
               children: [
                 Row(
                   children: [
-                    Flexible(
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 10,
-                          vertical: 5,
-                        ),
-                        decoration: BoxDecoration(
-                          color: const Color(
-                            0xFF9EC8ED,
-                          ).withValues(alpha: 0.16),
-                          borderRadius: BorderRadius.circular(999),
-                        ),
-                        child: Text(
-                          source,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: GoogleFonts.kadwa(
-                            fontSize: 11,
-                            fontWeight: FontWeight.bold,
-                            color: yaziRengi,
-                          ),
-                        ),
-                      ),
-                    ),
+                    if (category.isNotEmpty) ...[
+                      _buildNewsMetaChip(category, yaziRengi),
+                      const SizedBox(width: 8),
+                    ],
+                    Flexible(child: _buildNewsMetaChip(source, yaziRengi)),
                     if (formattedDate != null) ...[
                       const SizedBox(width: 10),
                       Text(
@@ -494,6 +558,7 @@ class _HomeScreenState extends State<HomeScreen> {
     String detail,
     String summary,
     String source,
+    String sourceUrl,
     Color kartRengi,
     Color yaziRengi,
   ) {
@@ -611,14 +676,81 @@ class _HomeScreenState extends State<HomeScreen> {
                     Flexible(
                       child: SingleChildScrollView(
                         padding: const EdgeInsets.fromLTRB(22, 18, 22, 24),
-                        child: Text(
-                          bodyText,
-                          style: GoogleFonts.kadwa(
-                            fontSize: 16,
-                            color: yaziRengi,
-                            height: 1.62,
-                            decoration: TextDecoration.none,
-                          ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              bodyText,
+                              style: GoogleFonts.kadwa(
+                                fontSize: 16,
+                                color: yaziRengi,
+                                height: 1.62,
+                                decoration: TextDecoration.none,
+                              ),
+                            ),
+                            if (sourceUrl.isNotEmpty) ...[
+                              const SizedBox(height: 18),
+                              Divider(color: dividerColor, height: 1),
+                              const SizedBox(height: 12),
+                              Material(
+                                color: Colors.transparent,
+                                child: InkWell(
+                                  borderRadius: BorderRadius.circular(14),
+                                  onTap: () => _openSourceUrl(sourceUrl, title),
+                                  child: Container(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 12,
+                                      vertical: 11,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      color: const Color(
+                                        0xFF9EC8ED,
+                                      ).withValues(alpha: isDark ? 0.10 : 0.16),
+                                      borderRadius: BorderRadius.circular(14),
+                                      border: Border.all(color: dividerColor),
+                                    ),
+                                    child: Row(
+                                      children: [
+                                        Icon(
+                                          Icons.open_in_new_rounded,
+                                          size: 18,
+                                          color: yaziRengi,
+                                        ),
+                                        const SizedBox(width: 9),
+                                        Expanded(
+                                          child: Text(
+                                            'Kaynağı aç',
+                                            maxLines: 1,
+                                            overflow: TextOverflow.ellipsis,
+                                            style: GoogleFonts.kadwa(
+                                              fontSize: 13,
+                                              color: yaziRengi,
+                                              fontWeight: FontWeight.bold,
+                                              decoration: TextDecoration.none,
+                                            ),
+                                          ),
+                                        ),
+                                        const SizedBox(width: 8),
+                                        Flexible(
+                                          child: Text(
+                                            sourceUrl,
+                                            maxLines: 1,
+                                            overflow: TextOverflow.ellipsis,
+                                            textAlign: TextAlign.right,
+                                            style: GoogleFonts.kadwa(
+                                              fontSize: 11,
+                                              color: mutedColor,
+                                              decoration: TextDecoration.none,
+                                            ),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ],
                         ),
                       ),
                     ),

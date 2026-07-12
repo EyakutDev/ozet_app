@@ -34,6 +34,22 @@ Ozet App, Firebase tabanli bir Flutter haber/ozet uygulamasidir.
 - Kartlar ile haber listesi arasindaki bosluk azaltildi.
 - Ana sayfada artik kullanilmayan eski haber karti ve eski detay modal kodlari temizlendi; modern haber karti ve mevcut detay dialogu korunur.
 
+- Haber akisi RSS/admin onay akisina hazirlik icin yayin filtresi kullanir: `published: false`, `status: draft` ve `status: rejected` mobilde gosterilmez.
+- Eski manuel haberlerde `published` veya `status` yoksa haber gorunmeye devam eder; mevcut admin veri girisi bozulmaz.
+- Haber kartlari `category`, `sourceUrl` ve `publishedAt` alanlarini destekler; gorsel alan kullanilmaz.
+- Haber detay kartinda sourceUrl varsa Kaynagi ac satiri uygulama icindeki WebView haber okuma ekranini acar.
+- Admin panelde yeni manuel haberler artik `draft_news` yerine `news` koleksiyonuna `status: draft` ve `published: false` ile kaydedilir.
+- Admin panel yayinlama aksiyonu ayni `news` dokumanini `status: published`, `published: true` ve `publishedAt` ile canliya alir.
+- Eski `draft_news` kayitlari admin panelde gorunmeye devam eder; yayinlaninca `news` koleksiyonuna tasinir ve eski taslak silinir.
+- Admin panelde RSS kaynak yonetimi icin `rss_sources` koleksiyonu eklendi; kaynak cekme islemi backend/Cloud Function tarafina baglanacak.
+- Cloud Function RSS importer iskeleti `ozet-admin-panel/functions` altina eklendi.
+- `importRssNow` callable function admin paneldeki `Simdi RSS Cek` butonundan calisir; oturum acmis Firebase kullanicisi gerekir. Cloud Run preflight istegi icin `invoker: public` ayarlidir, guvenlik kontrolu function icindeki `request.auth` ile yapilir.
+- `importRssScheduled` aktif RSS kaynaklarini her 5 saatte bir cekmek icin zamanlanmis function olarak tanimlandi.
+- RSS importer kaynak basina en fazla 10 haber alir, ayni kaynak URL/guid icin deterministik `rss_` dokuman id'si kullanarak tekrar eklemeyi engeller.
+- RSS'den gelen haberler `news` koleksiyonuna `status: draft`, `published: false` olarak yazilir; mobil uygulamada admin yayinlayana kadar gorunmez.
+- RSS kaynagi normal HTML sayfasiysa importer sayfa icindeki RSS/Atom alternate linklerini arar ve calisan feed adresini resolvedFeedUrl olarak kaydeder.
+- RSS cekme sonucu artik errors listesiyle ilk hata detayini admin panele dondurur; haber bulunamazsa sessiz 0 yeni yerine aciklama gosterilir.
+- RSS taslaklari admin panelde RSS etiketiyle manuel haberlerden ayrilir; kisa ozet ve Kaynagi ac linkiyle hizli kontrol edilebilir.
 ### Haber Detay Karti
 
 - Detay ekrani alttan acilan bottom sheet yerine tekrar ortada acilan dialog mantigina alindi.
@@ -98,6 +114,10 @@ Uygulama acilis ekranidir. Firebase oturumu varsa `HomeScreen`, yoksa `AuthScree
 
 Giris/kayit ekranidir. E-posta/sifre, Google girisi, sifre sifirlama ve gecici girissiz devam akislarini icerir.
 
+### `NewsWebViewScreen` - `lib/screens/news_webview_screen.dart`
+
+RSS/manual haber kaynak linklerini uygulama icinde WebView ile acar; ustte haber basligi, site adresi, yenile aksiyonu ve yukleme ilerleme cizgisi gosterir.
+
 ### `HomeScreen` - `lib/screens/home_screen.dart`
 
 Ana haber akisini, finans kartini, partner/detoks alanini ve haber detay dialogunu yonetir.
@@ -132,10 +152,14 @@ Uygulama genelindeki hata, basari ve bilgi snackbar mesajlarini tema uyumlu tek 
 
 - `_saveDeviceToken`: FCM token bilgisini kullanicinin Firestore dokumanina yazar.
 - `_buildLiveWidgets`: Finans ve partner/detoks kartlarini yan yana gosterir.
-- `_buildNewsFeed`: Firestore `news` koleksiyonunu dinleyip haber listesini olusturur.
+- `_buildNewsFeed`: Firestore `news` koleksiyonunu dinleyip yalnizca mobilde gorunebilir haber listesini olusturur.
 - `_buildModernNewsCard`: Admin panelinden gelen mevcut haber alanlarini modern kart tasariminda gosterir.
-- `_formatCreatedAt`: `createdAt` alanini kart uzerinde okunabilir kisa tarih formatina cevirir.
+- `_isVisibleNews`: RSS taslaklarini ve reddedilen haberleri mobil akistan filtreler.
+- `_textField`: Firestore metin alanlarini bosluklardan arindirarak guvenli okur.
+- `_buildNewsMetaChip`: Kategori ve kaynak bilgisini haber kartinda kompakt etiket olarak gosterir.
+- `_formatCreatedAt`: `createdAt` veya `publishedAt` alanini kart uzerinde okunabilir kisa tarih formatina cevirir.
 - `_showModernDetailModal`: Haber detayini ortada acilan modern dialog olarak gosterir.
+- `_openSourceUrl`: Haber kaynaginin URL bilgisini dogrular, detay dialogunu kapatir ve `NewsWebViewScreen` ekranini uygulama icinde acar.
 
 ### Settings
 
@@ -154,6 +178,23 @@ Uygulama genelindeki hata, basari ve bilgi snackbar mesajlarini tema uyumlu tek 
 
 - `AppFeedback.show`: Mesaj metnini `info`, `success` veya `error` tipine gore ikonlu, yuvarlak koseli ve temaya uyumlu snackbar olarak gosterir.
 
+### Admin Panel
+
+- `loadDraftNews`: `news` icindeki `draft/reviewed` haberleri ve eski `draft_news` taslaklarini onay listesinde gosterir.
+- `publishDraft`: Taslagi ayni dokuman uzerinden yayinlar; eski `draft_news` kayitlarini `news` koleksiyonuna tasir.
+- `unpublishNews`: Canli haberi silmek yerine `status: rejected`, `published: false` yaparak mobil akistan kaldirir.
+- `loadRssSources`: RSS kaynaklarini `rss_sources` koleksiyonundan listeler.
+- `isRssNews`: Haber kaydinin RSS importer tarafindan olusturulup olusturulmadigini `rssSource` veya `rssItemId` alanlarindan anlar.
+- `escapeHtml`: RSS gibi dis kaynaklardan gelen metinleri admin panel kartlarina guvenli basmak icin HTML karakterlerini kacar.
+- RSS kaynak formu: `name`, `url`, `defaultCategory`, `active`, `lastFetchedAt`, `lastError` alanlarini yonetir.
+### Cloud Functions
+
+- `importActiveRssSources`: Aktif `rss_sources` kayitlarini okur, RSS/Atom feedlerini ceker ve yeni haberleri `news` koleksiyonuna taslak olarak yazar.
+- `importSource`: Tek kaynak icin haberleri normalize eder, tekrar eklemeyi `rss_` dokuman id'siyle engeller ve kaynak uzerinde `lastFetchedAt`/`lastError` alanlarini gunceller.
+- loadFeed: Girilen URL dogrudan RSS/Atom degilse HTML icinden feed linki kesfetmeye calisir.
+- discoverFeedUrls: HTML alternate linkleri ve feed benzeri anchor URLlerinden RSS/Atom adaylarini cikarir.
+- parseFeed, parseRssItem, parseAtomEntry: Ek paket kullanmadan RSS/Atom XML iceriginden temel haber alanlarini okur.
+- `stableId`: Kaynak ve haber URL/guid bilgisinden tekrar uretilebilir Firestore dokuman id'si olusturur.
 ### Partner
 
 - `_buildDetoxPage`: Haber sayisina gore kazanilan dakika ve ozet sayisini gosterir.
@@ -188,11 +229,38 @@ news/{docId}
 - summary
 - detail
 - source
+- sourceUrl
+- rssSource
+- category
+- tags
+- published
+- status: draft | reviewed | published | rejected
 - createdAt
+- publishedAt
+- originalTitle
+- originalText
+- aiGenerated
 ```
 
-`createdAt` yoksa tarih gosterilmez. `detail` yoksa detay dialogunda `summary` kullanilir.
+`createdAt` veya `publishedAt` yoksa tarih gosterilmez. `detail` yoksa detay dialogunda `summary` kullanilir.
+Mobil akista gorunurluk kurali: `published: true` veya `status: published` gorunur; `published: false`, `status: draft` ve `status: rejected` gizlenir. Eski manuel kayitlarda bu alanlar yoksa haber gorunur kalir.
 
+RSS kaynaklari icin kullanilan alanlar:
+
+```text
+rss_sources/{docId}
+- name
+- url
+- defaultCategory
+- active
+- createdAt
+- lastFetchedAt
+- lastError
+- resolvedFeedUrl
+```
+
+`rss_sources` su an sadece kaynak kaydi tutar. RSS cekme islemi tarayici icinden yapilmaz; CORS ve guvenlik sebepleriyle backend/Cloud Function tarafinda calismalidir.
+Functions deploy notu: `ozet-admin-panel/functions` altinda `npm install` calistirildiktan sonra Firebase deploy yapilmalidir. Functions runtime Node 22 olarak ayarlandi; `firebase-functions@7.2.5` ve `firebase-admin@13.6.0` birlikte kullanilir.
 Partner durumlari icin `users/{uid}` dokumaninda kullanilan alanlar:
 
 ```text
@@ -216,6 +284,48 @@ users/{uid}
 `partnerSketch`, cizimi yapan kullanicinin dokumaninda tutulur; eslesilen kisi partner kartinda kucuk onizleme olarak gorur.
 
 partnerShares, durum/not/cizim paylasimlarinin son 3 kaydini tutar; ana kart son cizimi, detay paneli ise bu sinirli gecmisi kullanir.
+## AI Ozetleme Akisi
+
+- Admin panelde taslak haber kartlarina `AI Ozetle` / `AI Yenile` aksiyonu eklendi.
+- Aksiyon sadece yeni `news` koleksiyonundaki taslaklarda calisir; eski `draft_news` kayitlari once mevcut yayinlama akisiyla `news` tarafina tasinmalidir.
+- AI islemi tarayici tarafindan direkt Gemini API'ye gitmez. Admin panel `summarizeNewsWithAi` callable function'ini cagirir.
+- `summarizeNewsWithAi`, Firebase Auth oturumunu ve `admins/{email}` dokumanini kontrol eder, sonra secilen haberin `title`, `summary`, `detail`, `tags`, `aiGenerated`, `aiModel`, `aiSummarizedAt` alanlarini gunceller.
+- `GEMINI_API_KEY` client koduna yazilmaz; Firebase Functions secret olarak tanimlanir.
+- Deploy oncesi gerekli komut: `firebase functions:secrets:set GEMINI_API_KEY`.
+
+
+### Admin Taslak Kontrolu
+
+- Taslak haber kartlarinda `Ozeti Gor` kontrolu bulunur; bu kontrol kisa ozet ve detay metnini kart icinde acarak AI sonucunu yayina almadan once kontrol etmeyi saglar.
+- Onay bekleyen taslaklarda coklu secim vardir. Secilen taslaklar topluca yayinlanabilir veya onaydan sonra topluca silinebilir.
+### AI Tarafinda Kullanilan Fonksiyonlar
+
+- `assertAdmin`: Callable function cagrilarinda kullanicinin admin yetkisini Firestore `admins/{email}` dokumanindan dogrular.
+- `buildAiSourceText`: Haber dokumanindaki baslik/ozet/detay/orijinal metni ve varsa `sourceUrl` sayfasindan alinan metni AI icin tek kaynak metne toplar.
+- `cleanHtmlArticleText`: Haber sayfasindan gelen HTML icerigi temizleyip okunabilir metne cevirir.
+- `summarizeWithGemini`: Gemini generateContent API'ye JSON modunda istek gonderir; baslik, kisa ozet, detay ve tag alanlarini alir.
+- `extractGeminiResponseText`: Gemini generateContent yanitindaki aday metin parcalarini tek metne donusturur; bos yanitta finish/block sebebini hata mesajina ekler.
+- `summarizeDraftWithAi`: Admin panel taslak kartindaki AI butonunu Cloud Function'a baglar ve islem bitince taslak listesini yeniler.
+- `draftSelectionKey`, `setDraftSelection`, `syncSelectedDraftsWithVisible`: Admin panelde taslak kartlarinin coklu secim durumunu yonetir.
+- `publishSelectedDrafts`: Secilen taslaklari tek batch ile canliya alir; eski `draft_news` kayitlarini `news` koleksiyonuna tasir.
+- `deleteSelectedDrafts`: Secilen taslaklari onaydan sonra ilgili koleksiyonlardan topluca siler.
+## Admin Panel Responsive Yonetim Kabugu
+
+- Admin panel dar ve ortalanmis tek kart yapisindan masaustu alanini kullanan tam genislikte yonetim kabuguna tasindi.
+- Tum yonetim bolumleri yapiskan ust barda sekme olarak bulunur; mobilde sekmeler yatay kaydirilarak kullanilir.
+- Genel bakis alaninda canli haber, taslak, AI ozetli haber, aktif RSS, bugun yayinlanan haber ve RSS hata sayilari gosterilir.
+- Istatistikler yeni Firestore sorgulari acmaz; taslak, canli haber ve RSS listelerini yukleyen mevcut sorgularin sonuclarindan hesaplanir.
+- Haber listeleri, toplu islem cubuklari ve formlar 1180px, 860px, 620px ve 390px kirilimlarinda yeniden duzenlenir.
+- Canli haberler secilebilir; secilenler topluca yayindan kaldirilabilir veya geri alinamaz onayindan sonra kalici silinebilir.
+- Yayindan kaldirma published: false, status: rejected alanlarini yazar; kalici silme secilen news dokumanlarini Firestore batch ile siler.
+
+### Yeni Admin Fonksiyonlari
+
+- refreshAdminData: Tum panel verilerini birlikte yeniler ve son yenileme saatini gosterir.
+- setSidebarOpen: Mobil yan menuyu ve arka plan katmanini yonetir.
+- setLiveSelection, syncSelectedLiveNews, updateLiveBulkToolbar: Canli haber secimlerini ve toplu islem butonlarini yonetir.
+- unpublishSelectedLiveNews: Secilen canli haberleri tek batch ile yayindan kaldirir.
+- deleteSelectedLiveNews: Onaydan sonra secilen canli haberleri tek batch ile kalici siler.
 ## Sonraki Isler
 
 - Eski kullanilmayan haber karti fonksiyonunu temizlemek.

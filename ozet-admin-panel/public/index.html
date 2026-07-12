@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#0a2342">
+  <title>Ozet Admin Paneli</title>
+  <link rel="stylesheet" href="style_v2.css?v=20260711-3">
+</head>
+<body>
+
+<div id="login-container" class="login-shell">
+  <form class="login-card" onsubmit="return false;">
+    <span class="brand-mark">O</span>
+    <p class="eyebrow">Yonetim Paneli</p>
+    <h1>Ozet Admin</h1>
+    <p class="login-note">Haber akislarini ve uygulama verilerini yonet.</p>
+    <label for="email">E-posta</label>
+    <input type="email" id="email" placeholder="admin@ornek.com" autocomplete="email">
+    <label for="password">Sifre</label>
+    <input type="password" id="password" placeholder="Sifren" autocomplete="current-password">
+    <button id="login-btn" type="submit">Giris Yap</button>
+    <p id="login-error" class="error-message"></p>
+  </form>
+</div>
+
+<div id="admin-container" class="admin-shell" style="display: none;">
+  <main class="admin-main">
+    <header class="topbar">
+      <div class="topbar-primary">
+        <div class="topbar-brand">
+          <span class="brand-mark">O</span>
+          <div>
+            <p class="eyebrow">Icerik Yonetimi</p>
+            <h1>Ozet Admin</h1>
+          </div>
+        </div>
+        <div class="topbar-actions">
+          <span id="last-refresh-label">Veriler hazirlaniyor</span>
+          <button id="refresh-admin-btn" class="secondary-button" type="button">Yenile</button>
+          <button id="logout-btn" class="topbar-logout" type="button">Cikis Yap</button>
+        </div>
+      </div>
+      <nav class="topbar-nav" aria-label="Yonetim bolumleri">
+        <a href="#overview" class="nav-link active"><span>01</span>Genel Bakis</a>
+        <a href="#drafts" class="nav-link"><span>02</span>Taslaklar</a>
+        <a href="#live-news" class="nav-link"><span>03</span>Canli Haberler</a>
+        <a href="#rss" class="nav-link"><span>04</span>RSS Kaynaklari</a>
+        <a href="#manual-news" class="nav-link"><span>05</span>Yeni Haber</a>
+        <a href="#operations" class="nav-link"><span>06</span>Araclar</a>
+      </nav>
+    </header>
+
+    <div class="admin-content">
+      <section id="overview" class="page-section overview-section">
+        <div class="section-heading">
+          <div><p class="eyebrow">Anlik Durum</p><h2>Yayin Ozeti</h2></div>
+          <p>Haber, AI ve RSS akisinin guncel gorunumu.</p>
+        </div>
+        <div class="stats-grid">
+          <article class="stat-card accent-navy"><span>Canli Haber</span><strong id="stat-live-count">-</strong><small>Uygulamada gorunen</small></article>
+          <article class="stat-card accent-teal"><span>Onay Bekleyen</span><strong id="stat-draft-count">-</strong><small>Yayina hazirlanan</small></article>
+          <article class="stat-card accent-violet"><span>AI Ozetli</span><strong id="stat-ai-count">-</strong><small>Tum haberler icinde</small></article>
+          <article class="stat-card accent-green"><span>Aktif RSS</span><strong id="stat-rss-active">-</strong><small>Otomatik takipte</small></article>
+          <article class="stat-card accent-orange"><span>Bugun Yayinlanan</span><strong id="stat-today-published">-</strong><small>Son takvim gunu</small></article>
+          <article class="stat-card accent-red"><span>RSS Hatasi</span><strong id="stat-rss-error">-</strong><small>Kontrol gereken kaynak</small></article>
+        </div>
+      </section>
+
+      <section id="drafts" class="page-section content-panel wide-panel">
+        <div class="section-heading compact-heading">
+          <div><p class="eyebrow">Yayin Sirasi</p><h2>Onay Bekleyen Ozetler <span class="count-pill" id="draft-count">0</span></h2></div>
+          <p>Ozetleri kontrol et, sec ve tek islemle yayina al.</p>
+        </div>
+        <div id="draft-bulk-toolbar" class="bulk-toolbar">
+          <span id="selected-draft-count">0 secili</span>
+          <button id="select-visible-drafts-btn" type="button">Gorunenleri Sec</button>
+          <button id="clear-draft-selection-btn" type="button">Temizle</button>
+          <button id="publish-selected-drafts-btn" class="publish-action" type="button" disabled>Secilenleri Yayinla</button>
+          <button id="delete-selected-drafts-btn" class="delete-btn" type="button" disabled>Toplu Sil</button>
+        </div>
+        <div id="draft-list-container" class="news-list"></div>
+        <button id="publish-all-btn" class="publish-all" type="button">Tum Taslaklari Canliya Yayinla</button>
+        <p id="publish-success" class="success-message"></p>
+      </section>
+
+      <section id="live-news" class="page-section content-panel wide-panel">
+        <div class="section-heading compact-heading">
+          <div><p class="eyebrow">Yayinda</p><h2>Canli Haberler <span class="count-pill" id="live-count">0</span></h2></div>
+          <p>Canli akisi secerek yonet veya kalici olarak temizle.</p>
+        </div>
+        <div id="live-bulk-toolbar" class="bulk-toolbar live-bulk-toolbar">
+          <span id="selected-live-count">0 secili</span>
+          <button id="select-visible-live-btn" type="button">Gorunenleri Sec</button>
+          <button id="clear-live-selection-btn" type="button" disabled>Temizle</button>
+          <button id="unpublish-selected-live-btn" class="warning-action" type="button" disabled>Yayindan Kaldir</button>
+          <button id="delete-selected-live-btn" class="delete-btn" type="button" disabled>Kalici Sil</button>
+        </div>
+        <div id="live-list-container" class="news-list"></div>
+        <p id="live-success" class="success-message"></p>
+      </section>
+
+      <div class="dashboard-grid">
+        <section id="manual-news" class="page-section content-panel">
+          <div class="section-heading compact-heading"><div><p class="eyebrow">Manuel Giris</p><h2>Yeni Taslak Haber</h2></div></div>
+          <div class="form-stack">
+            <input type="text" id="news-title" placeholder="Haber Basligi">
+            <textarea id="news-summary" placeholder="Kisa ozet" rows="3"></textarea>
+            <textarea id="news-detail" placeholder="Detayli ozet" rows="6"></textarea>
+            <div class="form-grid">
+              <input type="text" id="news-source" placeholder="Haber kaynagi">
+              <input type="text" id="news-category" placeholder="Kategori">
+            </div>
+            <input type="url" id="news-source-url" placeholder="Kaynak veya haber URL">
+            <button id="add-draft-btn" type="button">Taslaga Ekle</button>
+          </div>
+        </section>
+
+        <section id="rss" class="page-section content-panel">
+          <div class="section-heading compact-heading"><div><p class="eyebrow">Otomatik Akis</p><h2>RSS Kaynaklari</h2></div></div>
+          <p class="section-note">Kaynaklar Cloud Function tarafindan 5 saatte bir kontrol edilir.</p>
+          <div class="form-stack">
+            <input type="text" id="rss-name" placeholder="Kaynak adi">
+            <input type="url" id="rss-url" placeholder="RSS URL">
+            <input type="text" id="rss-category" placeholder="Varsayilan kategori">
+            <div class="button-row">
+              <button id="add-rss-source-btn" class="secondary-action" type="button">Kaynak Ekle</button>
+              <button id="fetch-rss-now-btn" class="warning-action" type="button">Simdi RSS Cek</button>
+            </div>
+          </div>
+          <p id="rss-success" class="success-message"></p>
+          <div id="rss-source-list-container" class="source-list"></div>
+        </section>
+      </div>
+
+      <section id="operations" class="page-section operations-grid">
+        <article class="content-panel">
+          <div class="section-heading compact-heading"><div><p class="eyebrow">Piyasa Verisi</p><h2>Finans Guncelle</h2></div></div>
+          <div class="form-grid finance-form">
+            <input type="number" id="dolar-price" placeholder="Dolar fiyati">
+            <input type="number" id="altin-price" placeholder="Gram altin fiyati">
+          </div>
+          <button id="update-finance-btn" class="warning-action" type="button">Finans Verisini Guncelle</button>
+          <p id="finance-success" class="success-message"></p>
+        </article>
+
+        <article class="content-panel">
+          <div class="section-heading compact-heading"><div><p class="eyebrow">Duyuru</p><h2>Bildirim Gonder</h2></div></div>
+          <div class="form-stack">
+            <input type="text" id="notif-title" placeholder="Bildirim basligi">
+            <textarea id="notif-body" placeholder="Mesaj" rows="3"></textarea>
+            <button id="send-notif-btn" class="delete-btn" type="button">Herkese Bildirim Gonder</button>
+          </div>
+          <p id="notif-success" class="success-message"></p>
+        </article>
+      </section>
+    </div>
+  </main>
+</div>
+
+
+<script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-firestore-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-functions-compat.js"></script>
+<script src="app_v2.js?v=20260711-3"></script>
+</body>
+</html>

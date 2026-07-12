@@ -166,6 +166,16 @@ class _PartnerWidgetState extends State<PartnerWidget> {
     );
   }
 
+  bool _isVisibleNews(QueryDocumentSnapshot doc) {
+    final data = doc.data() as Map<String, dynamic>;
+    final published = data['published'];
+    final status = (data['status'] as String?)?.trim().toLowerCase();
+
+    if (published == false) return false;
+    if (status == 'draft' || status == 'rejected') return false;
+    return published == true || status == 'published' || status == null;
+  }
+
   // --- 1. DETOKS SAYFASI ---
   Widget _buildDetoxPage(
     BuildContext context,
@@ -178,7 +188,9 @@ class _PartnerWidgetState extends State<PartnerWidget> {
       stream: FirebaseFirestore.instance.collection('news').snapshots(),
       builder: (context, snapshot) {
         int newsCount = fallbackNewsCount;
-        if (snapshot.hasData) newsCount = snapshot.data!.docs.length;
+        if (snapshot.hasData) {
+          newsCount = snapshot.data!.docs.where(_isVisibleNews).length;
+        }
         final savedMinutes = newsCount * 4;
 
         return Container(

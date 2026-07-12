@@ -1,0 +1,15 @@
+{
+  "projects": {
+    "default": "ozet-d09a3"
+  },
+  "targets": {
+    "ozet-d09a3": {
+      "hosting": {
+        "admin-paneli": [
+          "ozet-admin"
+        ]
+      }
+    }
+  },
+  "etags": {}
+}
