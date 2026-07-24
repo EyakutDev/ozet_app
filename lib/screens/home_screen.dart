@@ -4,32 +4,35 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart'; // <-- YENİ: Kullanıcıyı bulmak için
 import 'package:firebase_messaging/firebase_messaging.dart'; // <-- YENİ: Bildirim Token'ı için
 import 'dart:ui' as ui;
+import 'package:ozet_app/models/daily_score_entry.dart';
+import 'package:ozet_app/screens/daily_score_screen.dart';
+import 'package:ozet_app/screens/daily_score_history_screen.dart';
 import 'package:ozet_app/screens/settings_screen.dart';
+import 'package:ozet_app/services/daily_score_storage.dart';
 import 'package:ozet_app/widgets/partner_widget.dart';
 import 'package:ozet_app/widgets/app_feedback.dart';
+import 'package:ozet_app/widgets/daily_cards_widget.dart';
 import 'package:ozet_app/screens/news_webview_screen.dart';
 
 class HomeScreen extends StatefulWidget {
-  const HomeScreen({Key? key}) : super(key: key);
+  const HomeScreen({super.key});
   @override
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
-class _HomeScreenState extends State<HomeScreen> {
+class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   // Haberleri çektiğimiz veri akışı (Canlı dinler)
   final Stream<QuerySnapshot> _newsStream = FirebaseFirestore.instance
       .collection('news')
       .orderBy('createdAt', descending: true)
       .snapshots();
 
-  // Finans verilerini (Dolar/Altın) çektiğimiz veri akışı
-  final Stream<DocumentSnapshot> _financeStream = FirebaseFirestore.instance
-      .collection('live_data')
-      .doc('finance')
-      .snapshots();
-
   // Sayfanın kaydırılmasını kontrol eden mekanizma
   final ScrollController _scrollController = ScrollController();
+  final DailyScoreStorage _dailyScoreStorage = DailyScoreStorage();
+
+  DailyScoreEntry? _todayScore;
+  bool _isDailyScoreLoading = true;
 
   // Sayfa aşağı kaydırıldı mı? (Blur efekti için kullanılır)
   bool _isScrolled = false;
@@ -37,6 +40,8 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _loadTodayScore();
 
     // === 1. BİLDİRİM TOKEN'INI KAYDET ===
     // Uygulama açılınca bu cihazın kimliğini veritabanına yazarız.
@@ -54,6 +59,56 @@ class _HomeScreenState extends State<HomeScreen> {
     });
   }
 
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _loadTodayScore();
+    }
+  }
+
+  Future<void> _loadTodayScore() async {
+    final entry = await _dailyScoreStorage.getForDate(DateTime.now());
+    if (!mounted) return;
+
+    setState(() {
+      _todayScore = entry;
+      _isDailyScoreLoading = false;
+    });
+  }
+
+  Future<void> _openDailyScore() async {
+    final entry = await Navigator.of(context).push<DailyScoreEntry>(
+      MaterialPageRoute(
+        builder: (_) => DailyScoreScreen(initialEntry: _todayScore),
+      ),
+    );
+    if (entry == null || !mounted) return;
+
+    try {
+      await _dailyScoreStorage.save(entry);
+      if (!mounted) return;
+      setState(() => _todayScore = entry);
+      AppFeedback.show(
+        context,
+        'Gün kartın oluşturuldu.',
+        type: AppFeedbackType.success,
+      );
+    } catch (_) {
+      if (!mounted) return;
+      AppFeedback.show(
+        context,
+        'Gün kartı kaydedilemedi. Tekrar deneyebilirsin.',
+        type: AppFeedbackType.error,
+      );
+    }
+  }
+
+  void _openDailyScoreHistory() {
+    Navigator.of(
+      context,
+    ).push(MaterialPageRoute(builder: (_) => DailyScoreHistoryScreen()));
+  }
+
   // === CİHAZ TOKEN KAYDETME FONKSİYONU ===
   Future<void> _saveDeviceToken() async {
     // 1. Bu cihazın özel bildirim adresini (Token) al
@@ -67,7 +122,6 @@ class _HomeScreenState extends State<HomeScreen> {
       await FirebaseFirestore.instance.collection('users').doc(user.uid).set({
         'fcmToken': token, // <-- Adres buraya yazılıyor
       }, SetOptions(merge: true)); // Mevcut verileri silmeden sadece bunu ekler
-      print("Cihaz Token'ı başarıyla kaydedildi: $token");
     }
   }
 
@@ -96,6 +150,7 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void dispose() {
     // Sayfa kapanırsa memory leak olmasın diye controller'ı temizle
+    WidgetsBinding.instance.removeObserver(this);
     _scrollController.dispose();
     super.dispose();
   }
@@ -113,8 +168,8 @@ class _HomeScreenState extends State<HomeScreen> {
         : Colors.white;
     final Color altYaziRengi = isDark ? Colors.grey[400]! : Colors.grey[700]!;
     final Color golgeRengi = isDark
-        ? Colors.black.withOpacity(0.2)
-        : Colors.grey.withOpacity(0.5);
+        ? Colors.black.withValues(alpha: 0.2)
+        : Colors.grey.withValues(alpha: 0.5);
     final Color scaffoldBg = Theme.of(context).scaffoldBackgroundColor;
 
     return Scaffold(
@@ -159,8 +214,8 @@ class _HomeScreenState extends State<HomeScreen> {
                         child: Container(
                           decoration: BoxDecoration(
                             color: isDark
-                                ? Colors.black.withOpacity(0.3)
-                                : Colors.white.withOpacity(0.3),
+                                ? Colors.black.withValues(alpha: 0.3)
+                                : Colors.white.withValues(alpha: 0.3),
                           ),
                         ),
                       )
@@ -190,14 +245,13 @@ class _HomeScreenState extends State<HomeScreen> {
                   ),
                   const SizedBox(height: 18),
 
-                  // 1. Canlı Widgetlar (Finans ve Partner)
+                  // 1. Partner ve Günlük Kartlar
                   SizedBox(
                     height: 145,
                     child: _buildLiveWidgets(
                       kartRengi,
                       yaziRengi,
                       altYaziRengi,
-                      golgeRengi,
                     ),
                   ),
 
@@ -218,89 +272,29 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  // --- Finans ve Partner Widgetlarını Yan Yana Gösterir ---
+  // Günlük değerlendirme ve partner alanını ana akışın üzerinde tutar.
   Widget _buildLiveWidgets(
     Color kartRengi,
     Color yaziRengi,
     Color altYaziRengi,
-    Color golgeRengi,
   ) {
-    return StreamBuilder<DocumentSnapshot>(
-      stream: _financeStream,
-      builder: (context, snapshot) {
-        double dolar = 0.0, altin = 0.0;
-
-        // Veri geldiyse değişkenleri güncelle
-        if (snapshot.hasData && snapshot.data!.exists) {
-          var data = snapshot.data!.data() as Map<String, dynamic>;
-          dolar = (data['dolar'] as num?)?.toDouble() ?? 0.0;
-          altin = (data['altin'] as num?)?.toDouble() ?? 0.0;
-        }
-
-        return Row(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            // SOL TARA: FİNANS KARTI
-            Expanded(
-              child: Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: kartRengi,
-                  borderRadius: BorderRadius.circular(20),
-                  boxShadow: [
-                    BoxShadow(
-                      color: golgeRengi,
-                      spreadRadius: 2,
-                      blurRadius: 10,
-                    ),
-                  ],
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Text(
-                      "Dolar",
-                      style: GoogleFonts.kadwa(
-                        fontSize: 14,
-                        color: altYaziRengi,
-                      ),
-                    ),
-                    Text(
-                      "${dolar.toStringAsFixed(2)} ₺",
-                      style: GoogleFonts.kadwa(
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
-                        color: yaziRengi,
-                      ),
-                    ),
-                    const SizedBox(height: 5),
-                    Text(
-                      "Altın",
-                      style: GoogleFonts.kadwa(
-                        fontSize: 14,
-                        color: altYaziRengi,
-                      ),
-                    ),
-                    Text(
-                      "${altin.toStringAsFixed(2)} ₺",
-                      style: GoogleFonts.kadwa(
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
-                        color: yaziRengi,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-            const SizedBox(width: 15),
-
-            // SAĞ TARAF: PARTNER WIDGET (Ayrı dosyadan geliyor)
-            const Expanded(child: PartnerWidget()),
-          ],
-        );
-      },
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Expanded(child: PartnerWidget(cardColor: kartRengi)),
+        const SizedBox(width: 15),
+        Expanded(
+          child: DailyCardsWidget(
+            entry: _todayScore,
+            isLoading: _isDailyScoreLoading,
+            onDailyScoreTap: _openDailyScore,
+            onHistoryTap: _openDailyScoreHistory,
+            cardColor: kartRengi,
+            textColor: yaziRengi,
+            mutedColor: altYaziRengi,
+          ),
+        ),
+      ],
     );
   }
 
@@ -381,12 +375,33 @@ class _HomeScreenState extends State<HomeScreen> {
     return published == true || status == 'published' || status == null;
   }
 
-  Widget _buildNewsMetaChip(String label, Color textColor) {
+  Color _newsAccentBackground(BuildContext context) {
+    return Colors.transparent;
+  }
+
+  Color _newsAccentForeground(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    return isDark ? const Color(0xFFF5F5F5) : const Color(0xFF222222);
+  }
+
+  Color _newsAccentBorder(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    return isDark
+        ? Colors.white.withValues(alpha: 0.22)
+        : Colors.black.withValues(alpha: 0.14);
+  }
+
+  Widget _buildNewsMetaChip(String label) {
+    final backgroundColor = _newsAccentBackground(context);
+    final foregroundColor = _newsAccentForeground(context);
+    final borderColor = _newsAccentBorder(context);
+
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
       decoration: BoxDecoration(
-        color: const Color(0xFF9EC8ED).withValues(alpha: 0.16),
+        color: backgroundColor,
         borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: borderColor),
       ),
       child: Text(
         label,
@@ -394,8 +409,8 @@ class _HomeScreenState extends State<HomeScreen> {
         overflow: TextOverflow.ellipsis,
         style: GoogleFonts.kadwa(
           fontSize: 11,
-          fontWeight: FontWeight.bold,
-          color: textColor,
+          fontWeight: FontWeight.w600,
+          color: foregroundColor,
         ),
       ),
     );
@@ -454,10 +469,10 @@ class _HomeScreenState extends State<HomeScreen> {
                 Row(
                   children: [
                     if (category.isNotEmpty) ...[
-                      _buildNewsMetaChip(category, yaziRengi),
+                      _buildNewsMetaChip(category),
                       const SizedBox(width: 8),
                     ],
-                    Flexible(child: _buildNewsMetaChip(source, yaziRengi)),
+                    Flexible(child: _buildNewsMetaChip(source)),
                     if (formattedDate != null) ...[
                       const SizedBox(width: 10),
                       Text(
@@ -566,6 +581,9 @@ class _HomeScreenState extends State<HomeScreen> {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final mutedColor = isDark ? Colors.grey[400]! : Colors.grey[600]!;
     final dividerColor = isDark ? Colors.grey[800]! : Colors.grey[200]!;
+    final accentBackground = _newsAccentBackground(context);
+    final accentForeground = _newsAccentForeground(context);
+    final accentMuted = mutedColor;
 
     showGeneralDialog(
       context: context,
@@ -626,9 +644,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                     vertical: 5,
                                   ),
                                   decoration: BoxDecoration(
-                                    color: const Color(
-                                      0xFF9EC8ED,
-                                    ).withValues(alpha: 0.16),
+                                    color: accentBackground,
                                     borderRadius: BorderRadius.circular(999),
                                   ),
                                   child: Text(
@@ -638,7 +654,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                     style: GoogleFonts.kadwa(
                                       fontSize: 11,
                                       fontWeight: FontWeight.bold,
-                                      color: yaziRengi,
+                                      color: accentForeground,
                                       decoration: TextDecoration.none,
                                     ),
                                   ),
@@ -703,9 +719,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                       vertical: 11,
                                     ),
                                     decoration: BoxDecoration(
-                                      color: const Color(
-                                        0xFF9EC8ED,
-                                      ).withValues(alpha: isDark ? 0.10 : 0.16),
+                                      color: accentBackground,
                                       borderRadius: BorderRadius.circular(14),
                                       border: Border.all(color: dividerColor),
                                     ),
@@ -714,7 +728,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                         Icon(
                                           Icons.open_in_new_rounded,
                                           size: 18,
-                                          color: yaziRengi,
+                                          color: accentForeground,
                                         ),
                                         const SizedBox(width: 9),
                                         Expanded(
@@ -724,7 +738,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                             overflow: TextOverflow.ellipsis,
                                             style: GoogleFonts.kadwa(
                                               fontSize: 13,
-                                              color: yaziRengi,
+                                              color: accentForeground,
                                               fontWeight: FontWeight.bold,
                                               decoration: TextDecoration.none,
                                             ),
@@ -739,7 +753,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                             textAlign: TextAlign.right,
                                             style: GoogleFonts.kadwa(
                                               fontSize: 11,
-                                              color: mutedColor,
+                                              color: accentMuted,
                                               decoration: TextDecoration.none,
                                             ),
                                           ),

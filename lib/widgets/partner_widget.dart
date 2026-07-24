@@ -6,9 +6,12 @@ import 'package:ozet_app/screens/settings_screen.dart';
 import 'package:ozet_app/widgets/app_feedback.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
+import 'dart:ui' show ImageFilter;
 
 class PartnerWidget extends StatefulWidget {
-  const PartnerWidget({Key? key}) : super(key: key);
+  const PartnerWidget({super.key, required this.cardColor});
+
+  final Color cardColor;
 
   @override
   State<PartnerWidget> createState() => _PartnerWidgetState();
@@ -16,47 +19,28 @@ class PartnerWidget extends StatefulWidget {
 
 class _PartnerWidgetState extends State<PartnerWidget> {
   static const int _maxPartnerShares = 3;
-  int _currentPage = 0;
 
   @override
   Widget build(BuildContext context) {
     final user = FirebaseAuth.instance.currentUser;
-
-    final bool isDark = Theme.of(context).brightness == Brightness.dark;
-    final Color cardBackgroundColor = isDark
-        ? const Color(0xFF1E1E1E)
-        : Colors.white;
-    final Color primaryTextColor = isDark ? Colors.white : Colors.black87;
-    final Color secondaryTextColor = isDark
-        ? Colors.grey[400]!
-        : Colors.black54;
-    final Color borderColor = isDark
-        ? Colors.grey[850]!
-        : const Color(0xFFE9EEF4);
-
-    // === RENK MANTIĞI (3. KART İÇİN GÜNCELLENDİ) ===
-    // 0: Detoks (Teal), 1: Partner (Red), 2: Sen (Blue)
-    Color themeColor;
-    if (_currentPage == 0) {
-      themeColor = Colors.teal;
-    } else if (_currentPage == 1) {
-      themeColor = Colors.redAccent;
-    } else {
-      themeColor = Colors.blueAccent; // <-- Senin kartının rengi
-    }
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final cardBackgroundColor = widget.cardColor;
+    final primaryTextColor = isDark ? Colors.white : Colors.black87;
+    final secondaryTextColor = isDark ? Colors.grey[400]! : Colors.black54;
+    final borderColor = isDark ? Colors.grey[850]! : const Color(0xFFE9EEF4);
+    final themeColor = _neutralAccent(context);
 
     if (user == null) {
       return _buildCardShell(
         cardBackgroundColor: cardBackgroundColor,
         borderColor: borderColor,
-        accentColor: Colors.teal,
+        accentColor: _neutralAccent(context),
         isDark: isDark,
-        child: _buildDetoxPage(
+        child: _buildConnectPage(
           context,
-          Colors.teal,
           primaryTextColor,
           secondaryTextColor,
-          fallbackNewsCount: 5,
+          activeIndex: null,
         ),
       );
     }
@@ -74,30 +58,14 @@ class _PartnerWidgetState extends State<PartnerWidget> {
         builder: (context, snapshot) {
           if (!snapshot.hasData) return _buildLoading();
 
-          var userData = snapshot.data!.data() as Map<String, dynamic>?;
-          String? partnerId = userData?['pairedWith'];
-
-          // === SENİN DURUM BİLGİLERİN ===
-          String myIcon = userData?['statusIcon'] ?? "🤔";
-          String myText = userData?['statusText'] ?? "Durum Ayarla";
+          final userData = snapshot.data!.data() as Map<String, dynamic>?;
+          final partnerId = userData?['pairedWith'] as String?;
+          final myIcon = userData?['statusIcon'] as String? ?? 'thinking';
+          final myText = userData?['statusText'] as String? ?? 'Durum Ayarla';
 
           return PageView(
             scrollDirection: Axis.horizontal,
-            onPageChanged: (index) {
-              setState(() {
-                _currentPage = index;
-              });
-            },
             children: [
-              // 1. KART: Detoks Sayfası
-              _buildDetoxPage(
-                context,
-                Colors.teal, // Sabit renk
-                primaryTextColor,
-                secondaryTextColor,
-              ),
-
-              // 2. KART: Partner Sayfası
               partnerId == null
                   ? _buildConnectPage(
                       context,
@@ -111,8 +79,6 @@ class _PartnerWidgetState extends State<PartnerWidget> {
                       primaryTextColor,
                       secondaryTextColor,
                     ),
-
-              // 3. KART (YENİ): Senin Profilin/Durumun
               _buildMyStatusPage(
                 context,
                 user.uid,
@@ -128,7 +94,13 @@ class _PartnerWidgetState extends State<PartnerWidget> {
     );
   }
 
-  // Ana sayfadaki detoks/eslesme kartlari icin ortak, sakin kart kabugu.
+  // Ana partner kartlarinda acik ve koyu tema icin notr kontrast kullanilir.
+  Color _neutralAccent(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    return isDark ? const Color(0xFFF5F5F5) : const Color(0xFF111111);
+  }
+
+  // Ana sayfadaki partner kartlari icin ortak, sakin kart kabugu.
   Widget _buildCardShell({
     required Widget child,
     required Color cardBackgroundColor,
@@ -140,20 +112,31 @@ class _PartnerWidgetState extends State<PartnerWidget> {
       duration: const Duration(milliseconds: 260),
       curve: Curves.easeOutCubic,
       decoration: BoxDecoration(
-        color: cardBackgroundColor,
         borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: borderColor),
         boxShadow: [
           BoxShadow(
             color: isDark
-                ? Colors.black.withValues(alpha: 0.20)
-                : accentColor.withValues(alpha: 0.16),
-            blurRadius: 16,
+                ? Colors.black.withValues(alpha: 0.28)
+                : accentColor.withValues(alpha: 0.08),
+            blurRadius: 18,
             offset: const Offset(0, 8),
           ),
         ],
       ),
-      child: ClipRRect(borderRadius: BorderRadius.circular(20), child: child),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(20),
+        child: BackdropFilter(
+          filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              color: cardBackgroundColor,
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(color: borderColor),
+            ),
+            child: child,
+          ),
+        ),
+      ),
     );
   }
 
@@ -166,105 +149,17 @@ class _PartnerWidgetState extends State<PartnerWidget> {
     );
   }
 
-  bool _isVisibleNews(QueryDocumentSnapshot doc) {
-    final data = doc.data() as Map<String, dynamic>;
-    final published = data['published'];
-    final status = (data['status'] as String?)?.trim().toLowerCase();
-
-    if (published == false) return false;
-    if (status == 'draft' || status == 'rejected') return false;
-    return published == true || status == 'published' || status == null;
-  }
-
-  // --- 1. DETOKS SAYFASI ---
-  Widget _buildDetoxPage(
-    BuildContext context,
-    Color themeColor,
-    Color primaryText,
-    Color secondaryText, {
-    int fallbackNewsCount = 0,
-  }) {
-    return StreamBuilder<QuerySnapshot>(
-      stream: FirebaseFirestore.instance.collection('news').snapshots(),
-      builder: (context, snapshot) {
-        int newsCount = fallbackNewsCount;
-        if (snapshot.hasData) {
-          newsCount = snapshot.data!.docs.where(_isVisibleNews).length;
-        }
-        final savedMinutes = newsCount * 4;
-
-        return Container(
-          padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              _buildHeaderRow(
-                title: "Detoks",
-                secondaryText: secondaryText,
-                accentColor: themeColor,
-                icon: Icons.spa_outlined,
-                activeIndex: FirebaseAuth.instance.currentUser == null
-                    ? null
-                    : 0,
-              ),
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    "$savedMinutes dk",
-                    style: GoogleFonts.kadwa(
-                      fontSize: 25,
-                      height: 1,
-                      fontWeight: FontWeight.bold,
-                      color: themeColor.withValues(alpha: 0.92),
-                    ),
-                  ),
-                  const SizedBox(height: 3),
-                  Text(
-                    "kazandığın süre",
-                    style: GoogleFonts.kadwa(
-                      fontSize: 11,
-                      color: secondaryText,
-                      height: 1.1,
-                    ),
-                  ),
-                ],
-              ),
-              Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      "$newsCount özet okundu",
-                      style: GoogleFonts.kadwa(
-                        fontSize: 13,
-                        fontWeight: FontWeight.bold,
-                        color: primaryText,
-                      ),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ),
-                  Icon(Icons.arrow_forward_ios, size: 12, color: secondaryText),
-                ],
-              ),
-            ],
-          ),
-        );
-      },
-    );
-  }
-
   Widget _buildMiniIcon(IconData icon, Color color) {
     return Container(
       width: 28,
       height: 28,
       alignment: Alignment.center,
       decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.12),
-        borderRadius: BorderRadius.circular(10),
+        color: Colors.transparent,
+        shape: BoxShape.circle,
+        border: Border.all(color: color.withValues(alpha: 0.14)),
       ),
-      child: Icon(icon, size: 16, color: color),
+      child: Icon(icon, size: 15, color: color.withValues(alpha: 0.78)),
     );
   }
 
@@ -272,15 +167,17 @@ class _PartnerWidgetState extends State<PartnerWidget> {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
       decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.10),
+        color: Colors.transparent,
         borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: color.withValues(alpha: 0.14)),
       ),
       child: Text(
         label,
-        style: GoogleFonts.kadwa(
-          fontSize: 11,
-          color: color,
-          fontWeight: FontWeight.bold,
+        style: GoogleFonts.inter(
+          fontSize: 10.5,
+          color: color.withValues(alpha: 0.82),
+          fontWeight: FontWeight.w600,
+          letterSpacing: 0,
           height: 1,
         ),
       ),
@@ -319,26 +216,35 @@ class _PartnerWidgetState extends State<PartnerWidget> {
       height: size,
       alignment: Alignment.center,
       decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.12),
+        color: Colors.transparent,
         shape: BoxShape.circle,
+        border: Border.all(color: color.withValues(alpha: 0.14)),
       ),
-      child: _buildStatusMark(icon, color, size: size * 0.52),
+      child: _buildStatusMark(icon, color, size: size * 0.48),
     );
   }
 
   Widget _buildTinyDots(int activeIndex, Color activeColor, Color mutedColor) {
     return Row(
       mainAxisSize: MainAxisSize.min,
-      children: List.generate(3, (index) {
+      children: List.generate(2, (index) {
         final isActive = index == activeIndex;
         return AnimatedContainer(
           duration: const Duration(milliseconds: 180),
+          curve: Curves.easeOut,
           margin: const EdgeInsets.only(left: 3),
-          width: isActive ? 14 : 5,
+          width: isActive ? 13 : 5,
           height: 5,
           decoration: BoxDecoration(
-            color: isActive ? activeColor : mutedColor.withValues(alpha: 0.35),
+            color: isActive
+                ? activeColor.withValues(alpha: 0.82)
+                : Colors.transparent,
             borderRadius: BorderRadius.circular(99),
+            border: Border.all(
+              color: isActive
+                  ? Colors.transparent
+                  : mutedColor.withValues(alpha: 0.2),
+            ),
           ),
         );
       }),
@@ -361,15 +267,21 @@ class _PartnerWidgetState extends State<PartnerWidget> {
           children: [
             Text(
               title,
-              style: GoogleFonts.kadwa(fontSize: 14, color: secondaryText),
+              style: GoogleFonts.inter(
+                fontSize: 12.5,
+                fontWeight: FontWeight.w500,
+                color: accentColor.withValues(alpha: 0.84),
+                letterSpacing: 0,
+                height: 1,
+              ),
             ),
             if (hasIndicator) ...[
               const SizedBox(width: 6),
               Container(
-                width: 7,
-                height: 7,
+                width: 6,
+                height: 6,
                 decoration: BoxDecoration(
-                  color: accentColor.withValues(alpha: 0.95),
+                  color: accentColor.withValues(alpha: 0.9),
                   shape: BoxShape.circle,
                 ),
               ),
@@ -393,8 +305,9 @@ class _PartnerWidgetState extends State<PartnerWidget> {
   Widget _buildConnectPage(
     BuildContext context,
     Color primaryText,
-    Color secondaryText,
-  ) {
+    Color secondaryText, {
+    int? activeIndex = 0,
+  }) {
     return GestureDetector(
       onTap: () => Navigator.push(
         context,
@@ -409,9 +322,9 @@ class _PartnerWidgetState extends State<PartnerWidget> {
             _buildHeaderRow(
               title: "Eşleşme",
               secondaryText: secondaryText,
-              accentColor: Colors.redAccent,
+              accentColor: _neutralAccent(context),
               icon: Icons.link,
-              activeIndex: 1,
+              activeIndex: activeIndex,
             ),
             Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -439,7 +352,7 @@ class _PartnerWidgetState extends State<PartnerWidget> {
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                _buildActionHint("Ayarlar", Colors.redAccent),
+                _buildActionHint("Ayarlar", _neutralAccent(context)),
                 Icon(Icons.arrow_forward_ios, size: 12, color: secondaryText),
               ],
             ),
@@ -470,79 +383,95 @@ class _PartnerWidgetState extends State<PartnerWidget> {
         final noteText = (data?['partnerNote'] as String?)?.trim();
         final sketchStrokes = _readSketchStrokes(data?['partnerSketch']);
         final hasNote = noteText != null && noteText.isNotEmpty;
+        final isDark = Theme.of(context).brightness == Brightness.dark;
+        final accentColor = _neutralAccent(context);
+        final previewSurface = isDark
+            ? const Color(0xFFF5F5F7).withValues(alpha: 0.92)
+            : Colors.white.withValues(alpha: 0.52);
+        final previewBorder = isDark
+            ? Colors.white.withValues(alpha: 0.12)
+            : Colors.black.withValues(alpha: 0.045);
 
         return GestureDetector(
           behavior: HitTestBehavior.opaque,
           onTap: () => _showPartnerSharesSheet(context, partnerId),
           child: Container(
-            padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+            padding: const EdgeInsets.fromLTRB(13, 11, 13, 11),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 _buildHeaderRow(
                   title: "Partner",
                   secondaryText: secondaryText,
-                  accentColor: Colors.redAccent,
-                  icon: Icons.favorite_border,
-                  activeIndex: 1,
+                  accentColor: accentColor,
+                  icon: Icons.person_outline_rounded,
+                  activeIndex: 0,
                   hasIndicator: hasNote,
                 ),
-                const SizedBox(height: 8),
+                const SizedBox(height: 7),
                 Expanded(
-                  child: sketchStrokes.isNotEmpty
-                      ? Container(
-                          width: double.infinity,
-                          decoration: BoxDecoration(
-                            color: secondaryText.withValues(alpha: 0.08),
-                            borderRadius: BorderRadius.circular(14),
-                            border: Border.all(
-                              color: secondaryText.withValues(alpha: 0.10),
-                            ),
-                          ),
-                          child: ClipRRect(
-                            borderRadius: BorderRadius.circular(14),
+                  child: Container(
+                    width: double.infinity,
+                    decoration: BoxDecoration(
+                      color: sketchStrokes.isNotEmpty
+                          ? previewSurface
+                          : Colors.transparent,
+                      borderRadius: BorderRadius.circular(13),
+                      border: Border.all(color: previewBorder),
+                    ),
+                    child: sketchStrokes.isNotEmpty
+                        ? ClipRRect(
+                            borderRadius: BorderRadius.circular(13),
                             child: CustomPaint(
-                              painter: _SketchPainter(sketchStrokes),
+                              painter: _SketchPainter(
+                                sketchStrokes,
+                                fitToContent: true,
+                                previewPadding: 5,
+                              ),
                               child: const SizedBox.expand(),
                             ),
+                          )
+                        : Center(
+                            child: Icon(
+                              Icons.draw_outlined,
+                              size: 24,
+                              color: accentColor.withValues(alpha: 0.58),
+                            ),
                           ),
-                        )
-                      : Container(
-                          width: double.infinity,
-                          alignment: Alignment.center,
-                          decoration: BoxDecoration(
-                            color: Colors.redAccent.withValues(alpha: 0.08),
-                            borderRadius: BorderRadius.circular(14),
-                          ),
-                          child: Icon(
-                            Icons.draw_outlined,
-                            size: 26,
-                            color: Colors.redAccent.withValues(alpha: 0.72),
-                          ),
-                        ),
+                  ),
                 ),
-                const SizedBox(height: 8),
+                const SizedBox(height: 7),
                 Row(
                   children: [
-                    _buildStatusBubble(icon, Colors.redAccent, size: 30),
-                    const SizedBox(width: 8),
+                    SizedBox.square(
+                      dimension: 24,
+                      child: Center(
+                        child: _buildStatusMark(
+                          icon,
+                          accentColor.withValues(alpha: 0.82),
+                          size: 16,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 6),
                     Expanded(
                       child: Text(
                         text,
-                        style: GoogleFonts.kadwa(
-                          fontSize: 13,
+                        style: GoogleFonts.inter(
+                          fontSize: 12.5,
                           height: 1.1,
-                          fontWeight: FontWeight.bold,
+                          fontWeight: FontWeight.w600,
                           color: primaryText,
+                          letterSpacing: 0,
                         ),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                       ),
                     ),
                     Icon(
-                      Icons.touch_app_outlined,
-                      size: 14,
-                      color: secondaryText,
+                      Icons.chevron_right_rounded,
+                      size: 17,
+                      color: secondaryText.withValues(alpha: 0.72),
                     ),
                   ],
                 ),
@@ -631,7 +560,11 @@ class _PartnerWidgetState extends State<PartnerWidget> {
                       child: ClipRRect(
                         borderRadius: BorderRadius.circular(16),
                         child: CustomPaint(
-                          painter: _SketchPainter(sketchStrokes),
+                          painter: _SketchPainter(
+                            sketchStrokes,
+                            fitToContent: true,
+                            previewPadding: 12,
+                          ),
                           child: const SizedBox.expand(),
                         ),
                       ),
@@ -762,7 +695,11 @@ class _PartnerWidgetState extends State<PartnerWidget> {
                     child: ClipRRect(
                       borderRadius: BorderRadius.circular(12),
                       child: CustomPaint(
-                        painter: _SketchPainter(share.strokes),
+                        painter: _SketchPainter(
+                          share.strokes,
+                          fitToContent: true,
+                          previewPadding: 8,
+                        ),
                         child: const SizedBox.expand(),
                       ),
                     ),
@@ -891,13 +828,13 @@ class _PartnerWidgetState extends State<PartnerWidget> {
             _buildHeaderRow(
               title: "Durumum",
               secondaryText: secondaryText,
-              accentColor: Colors.blueAccent,
+              accentColor: _neutralAccent(context),
               icon: Icons.face_outlined,
-              activeIndex: 2,
+              activeIndex: 1,
             ),
             Row(
               children: [
-                _buildStatusBubble(myIcon, Colors.blueAccent),
+                _buildStatusBubble(myIcon, _neutralAccent(context)),
                 const SizedBox(width: 10),
                 Expanded(
                   child: Text(
@@ -917,7 +854,7 @@ class _PartnerWidgetState extends State<PartnerWidget> {
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                _buildActionHint("Güncelle", Colors.blueAccent),
+                _buildActionHint("Güncelle", _neutralAccent(context)),
                 Icon(Icons.touch_app_outlined, size: 15, color: secondaryText),
               ],
             ),
@@ -928,349 +865,571 @@ class _PartnerWidgetState extends State<PartnerWidget> {
   }
 
   // --- DURUM MENÜSÜ ---
-  void _showStatusPicker(BuildContext context, String myUid) {
+  Future<void> _showStatusPicker(BuildContext context, String myUid) async {
     final parentContext = context;
     final customStatusController = TextEditingController();
     final noteController = TextEditingController();
+    BuildContext? activeSheetContext;
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final sheetBg = isDark ? const Color(0xFF1E1E1E) : Colors.white;
-    final inputBg = isDark ? const Color(0xFF262626) : const Color(0xFFF6F8FA);
-    final textColor = isDark ? Colors.white : Colors.black87;
-    final mutedColor = isDark ? Colors.grey[400]! : Colors.grey[600]!;
-    final borderColor = isDark ? Colors.grey[850]! : const Color(0xFFE9EEF4);
+    final highContrast = MediaQuery.of(context).highContrast;
+    final glassTint = isDark
+        ? const Color(0xFF141416).withValues(alpha: highContrast ? 0.96 : 0.82)
+        : Colors.white.withValues(alpha: highContrast ? 0.97 : 0.78);
+    final controlSurface = isDark
+        ? Colors.white.withValues(alpha: highContrast ? 0.14 : 0.08)
+        : Colors.white.withValues(alpha: highContrast ? 0.92 : 0.58);
+    final inputSurface = isDark
+        ? Colors.white.withValues(alpha: highContrast ? 0.13 : 0.075)
+        : const Color(0xFFF2F2F7).withValues(alpha: highContrast ? 0.96 : 0.78);
+    final textColor = isDark
+        ? const Color(0xFFF5F5F7)
+        : const Color(0xFF111114);
+    final mutedColor = isDark
+        ? const Color(0xFFA1A1A6)
+        : const Color(0xFF6E6E73);
+    final glassBorder = isDark
+        ? Colors.white.withValues(alpha: 0.16)
+        : Colors.white.withValues(alpha: 0.88);
+    final controlBorder = isDark
+        ? Colors.white.withValues(alpha: 0.13)
+        : Colors.black.withValues(alpha: 0.065);
+    final focusedBorder = textColor.withValues(alpha: isDark ? 0.42 : 0.28);
+    final actionBackground = _neutralAccent(context);
+    final actionForeground = isDark ? const Color(0xFF111114) : Colors.white;
+    final sectionLabelStyle = GoogleFonts.inter(
+      fontSize: 12.5,
+      fontWeight: FontWeight.w600,
+      color: mutedColor,
+      letterSpacing: 0,
+      height: 1.1,
+    );
 
-    showModalBottomSheet(
+    Widget buildComposerAction({
+      required bool enabled,
+      required String tooltip,
+      required VoidCallback onPressed,
+    }) {
+      return AnimatedOpacity(
+        duration: const Duration(milliseconds: 160),
+        curve: Curves.easeOut,
+        opacity: enabled ? 1 : 0.42,
+        child: IconButton(
+          tooltip: tooltip,
+          onPressed: enabled ? onPressed : null,
+          icon: const Icon(Icons.arrow_upward_rounded, size: 19),
+          style: IconButton.styleFrom(
+            foregroundColor: actionForeground,
+            backgroundColor: actionBackground,
+            disabledForegroundColor: mutedColor,
+            disabledBackgroundColor: mutedColor.withValues(alpha: 0.12),
+            fixedSize: const Size.square(36),
+            padding: EdgeInsets.zero,
+            shape: const CircleBorder(),
+          ),
+        ),
+      );
+    }
+
+    Future<void> submitCustomStatus(BuildContext sheetContext) async {
+      final text = customStatusController.text.trim();
+      if (text.isEmpty) return;
+
+      final nav = Navigator.of(sheetContext);
+      try {
+        await _updateStatus(myUid, "custom", text);
+        _notifyPartner(myUid, "custom", text);
+        if (sheetContext.mounted) nav.pop();
+        if (parentContext.mounted) {
+          AppFeedback.show(
+            parentContext,
+            "Durum güncellendi.",
+            type: AppFeedbackType.success,
+          );
+        }
+      } catch (_) {
+        if (parentContext.mounted) {
+          AppFeedback.show(
+            parentContext,
+            "Durum güncellenemedi.",
+            type: AppFeedbackType.error,
+          );
+        }
+      }
+    }
+
+    Future<void> submitNote(BuildContext sheetContext) async {
+      final note = noteController.text.trim();
+      if (note.isEmpty) return;
+
+      final nav = Navigator.of(sheetContext);
+      try {
+        await _sendPartnerNote(myUid, note);
+        if (sheetContext.mounted) nav.pop();
+        if (parentContext.mounted) {
+          AppFeedback.show(
+            parentContext,
+            "Mini not gönderildi.",
+            type: AppFeedbackType.success,
+          );
+        }
+      } catch (_) {
+        if (parentContext.mounted) {
+          AppFeedback.show(
+            parentContext,
+            "Mini not gönderilemedi.",
+            type: AppFeedbackType.error,
+          );
+        }
+      }
+    }
+
+    // Cam efekti tek katmanda tutulur; alt kontroller tekrar blur edilmez.
+    final openSketch = await showModalBottomSheet<bool>(
       context: context,
       isScrollControlled: true,
-      backgroundColor: sheetBg,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      builder: (context) {
-        return SingleChildScrollView(
-          padding: EdgeInsets.fromLTRB(
-            20,
-            14,
-            20,
-            MediaQuery.of(context).viewInsets.bottom + 24,
+      useSafeArea: true,
+      backgroundColor: Colors.transparent,
+      barrierColor: Colors.black.withValues(alpha: isDark ? 0.58 : 0.26),
+      constraints: const BoxConstraints(maxWidth: 640),
+      builder: (sheetContext) {
+        activeSheetContext = sheetContext;
+        final mediaQuery = MediaQuery.of(sheetContext);
+
+        return Container(
+          width: double.infinity,
+          decoration: BoxDecoration(
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(30)),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: isDark ? 0.34 : 0.16),
+                blurRadius: 34,
+                offset: const Offset(0, -10),
+              ),
+            ],
           ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Center(
-                child: Container(
-                  width: 38,
-                  height: 4,
-                  decoration: BoxDecoration(
-                    color: mutedColor.withValues(alpha: 0.35),
-                    borderRadius: BorderRadius.circular(2),
+          child: ClipRRect(
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(30)),
+            child: BackdropFilter(
+              filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  color: glassTint,
+                  border: Border.all(color: glassBorder),
+                  borderRadius: const BorderRadius.vertical(
+                    top: Radius.circular(30),
                   ),
                 ),
-              ),
-              const SizedBox(height: 18),
-              Text(
-                "Durumunu güncelle",
-                style: GoogleFonts.kadwa(
-                  fontSize: 20,
-                  fontWeight: FontWeight.bold,
-                  color: textColor,
-                ),
-              ),
-              Text(
-                "Hızlı his seç veya partnerine kısa bir not bırak.",
-                style: GoogleFonts.kadwa(
-                  fontSize: 13,
-                  color: mutedColor,
-                  height: 1.25,
-                ),
-              ),
-              const SizedBox(height: 18),
-              _buildSharedItemsSection(
-                myUid: myUid,
-                textColor: textColor,
-                mutedColor: mutedColor,
-                inputBg: inputBg,
-                borderColor: borderColor,
-                feedbackContext: parentContext,
-              ),
-              const SizedBox(height: 18),
-              SizedBox(
-                height: 44,
-                child: ListView(
-                  scrollDirection: Axis.horizontal,
-                  children: [
-                    _statusButton(
-                      context,
-                      parentContext,
-                      myUid,
-                      "calm",
-                      "Sakinim",
-                      inputBg,
-                      textColor,
-                      borderColor,
-                    ),
-                    _statusButton(
-                      context,
-                      parentContext,
-                      myUid,
-                      "chat",
-                      "Konuşalım",
-                      inputBg,
-                      textColor,
-                      borderColor,
-                    ),
-                    _statusButton(
-                      context,
-                      parentContext,
-                      myUid,
-                      "soon",
-                      "Birazdan",
-                      inputBg,
-                      textColor,
-                      borderColor,
-                    ),
-                    _statusButton(
-                      context,
-                      parentContext,
-                      myUid,
-                      "busy",
-                      "Yoğunum",
-                      inputBg,
-                      textColor,
-                      borderColor,
-                    ),
-                    _statusButton(
-                      context,
-                      parentContext,
-                      myUid,
-                      "coffee",
-                      "Kahve",
-                      inputBg,
-                      textColor,
-                      borderColor,
-                    ),
-                    _statusButton(
-                      context,
-                      parentContext,
-                      myUid,
-                      "thinking",
-                      "Seni düşünüyorum",
-                      inputBg,
-                      textColor,
-                      borderColor,
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 18),
-              Text(
-                "Özel durum",
-                style: GoogleFonts.kadwa(
-                  fontSize: 14,
-                  fontWeight: FontWeight.bold,
-                  color: textColor,
-                ),
-              ),
-              const SizedBox(height: 8),
-              Row(
-                children: [
-                  Expanded(
-                    child: TextField(
-                      controller: customStatusController,
-                      maxLength: 28,
-                      style: GoogleFonts.kadwa(color: textColor, fontSize: 14),
-                      decoration: InputDecoration(
-                        hintText: "Örn: Biraz yorgunum",
-                        hintStyle: GoogleFonts.kadwa(
-                          fontSize: 14,
-                          color: mutedColor,
-                        ),
-                        counterText: "",
-                        filled: true,
-                        fillColor: inputBg,
-                        contentPadding: const EdgeInsets.symmetric(
-                          horizontal: 14,
-                          vertical: 12,
-                        ),
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(12),
-                          borderSide: BorderSide(color: borderColor),
-                        ),
-                        enabledBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(12),
-                          borderSide: BorderSide(color: borderColor),
-                        ),
-                        focusedBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(12),
-                          borderSide: const BorderSide(
-                            color: Colors.blueAccent,
-                            width: 1.6,
+                child: SingleChildScrollView(
+                  physics: const BouncingScrollPhysics(),
+                  keyboardDismissBehavior:
+                      ScrollViewKeyboardDismissBehavior.onDrag,
+                  padding: EdgeInsets.fromLTRB(
+                    18,
+                    10,
+                    18,
+                    mediaQuery.viewInsets.bottom + 20,
+                  ),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Center(
+                        child: Container(
+                          width: 36,
+                          height: 5,
+                          decoration: BoxDecoration(
+                            color: textColor.withValues(alpha: 0.2),
+                            borderRadius: BorderRadius.circular(99),
                           ),
                         ),
                       ),
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                  GestureDetector(
-                    onTap: () async {
-                      final nav = Navigator.of(context);
-                      String text = customStatusController.text.trim();
-                      if (text.isNotEmpty) {
-                        try {
-                          await _updateStatus(myUid, "custom", text);
-                          _notifyPartner(myUid, "custom", text);
-                          nav.pop();
-                          if (parentContext.mounted) {
-                            AppFeedback.show(
-                              parentContext,
-                              "Durum güncellendi.",
-                              type: AppFeedbackType.success,
-                            );
-                          }
-                        } catch (_) {
-                          if (parentContext.mounted) {
-                            AppFeedback.show(
-                              parentContext,
-                              "Durum güncellenemedi.",
-                              type: AppFeedbackType.error,
-                            );
-                          }
-                        }
-                      }
-                    },
-                    child: Container(
-                      padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFF0A2342),
-                        borderRadius: BorderRadius.circular(12),
+                      const SizedBox(height: 16),
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  "Durumunu güncelle",
+                                  style: GoogleFonts.inter(
+                                    fontSize: 24,
+                                    fontWeight: FontWeight.w700,
+                                    color: textColor,
+                                    letterSpacing: 0,
+                                    height: 1.12,
+                                  ),
+                                ),
+                                const SizedBox(height: 5),
+                                Text(
+                                  "Partnerinle ne paylaşmak istersin?",
+                                  style: GoogleFonts.inter(
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w400,
+                                    color: mutedColor,
+                                    letterSpacing: 0,
+                                    height: 1.25,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          IconButton(
+                            tooltip: "Kapat",
+                            onPressed: () => Navigator.of(sheetContext).pop(),
+                            icon: const Icon(Icons.close_rounded, size: 19),
+                            style: IconButton.styleFrom(
+                              foregroundColor: textColor,
+                              backgroundColor: controlSurface,
+                              fixedSize: const Size.square(38),
+                              padding: EdgeInsets.zero,
+                              side: BorderSide(color: controlBorder),
+                              shape: const CircleBorder(),
+                            ),
+                          ),
+                        ],
                       ),
-                      child: const Icon(
-                        Icons.send,
-                        color: Colors.white,
-                        size: 20,
+                      const SizedBox(height: 22),
+                      _buildSharedItemsSection(
+                        myUid: myUid,
+                        textColor: textColor,
+                        mutedColor: mutedColor,
+                        inputBg: controlSurface,
+                        borderColor: controlBorder,
+                        feedbackContext: parentContext,
                       ),
-                    ),
+                      const SizedBox(height: 20),
+                      Text("Hızlı durum", style: sectionLabelStyle),
+                      const SizedBox(height: 10),
+                      SizedBox(
+                        height: 48,
+                        child: ListView(
+                          scrollDirection: Axis.horizontal,
+                          physics: const BouncingScrollPhysics(),
+                          clipBehavior: Clip.none,
+                          children: [
+                            _statusButton(
+                              sheetContext,
+                              parentContext,
+                              myUid,
+                              "calm",
+                              "Sakinim",
+                              controlSurface,
+                              textColor,
+                              controlBorder,
+                            ),
+                            _statusButton(
+                              sheetContext,
+                              parentContext,
+                              myUid,
+                              "chat",
+                              "Konuşalım",
+                              controlSurface,
+                              textColor,
+                              controlBorder,
+                            ),
+                            _statusButton(
+                              sheetContext,
+                              parentContext,
+                              myUid,
+                              "soon",
+                              "Birazdan",
+                              controlSurface,
+                              textColor,
+                              controlBorder,
+                            ),
+                            _statusButton(
+                              sheetContext,
+                              parentContext,
+                              myUid,
+                              "busy",
+                              "Yoğunum",
+                              controlSurface,
+                              textColor,
+                              controlBorder,
+                            ),
+                            _statusButton(
+                              sheetContext,
+                              parentContext,
+                              myUid,
+                              "coffee",
+                              "Kahve",
+                              controlSurface,
+                              textColor,
+                              controlBorder,
+                            ),
+                            _statusButton(
+                              sheetContext,
+                              parentContext,
+                              myUid,
+                              "thinking",
+                              "Seni düşünüyorum",
+                              controlSurface,
+                              textColor,
+                              controlBorder,
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 20),
+                      Text("Özel durum", style: sectionLabelStyle),
+                      const SizedBox(height: 9),
+                      TextField(
+                        controller: customStatusController,
+                        maxLength: 28,
+                        textInputAction: TextInputAction.send,
+                        cursorColor: textColor,
+                        onSubmitted: (_) => submitCustomStatus(sheetContext),
+                        style: GoogleFonts.inter(
+                          color: textColor,
+                          fontSize: 14.5,
+                          fontWeight: FontWeight.w500,
+                          letterSpacing: 0,
+                        ),
+                        decoration: InputDecoration(
+                          hintText: "Şu an nasıl hissediyorsun?",
+                          hintStyle: GoogleFonts.inter(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w400,
+                            color: mutedColor,
+                            letterSpacing: 0,
+                          ),
+                          counterText: "",
+                          filled: true,
+                          fillColor: inputSurface,
+                          isDense: true,
+                          contentPadding: const EdgeInsets.fromLTRB(
+                            16,
+                            15,
+                            7,
+                            15,
+                          ),
+                          suffixIconConstraints: const BoxConstraints(
+                            minWidth: 50,
+                            minHeight: 50,
+                          ),
+                          suffixIcon: ValueListenableBuilder<TextEditingValue>(
+                            valueListenable: customStatusController,
+                            builder: (context, value, child) {
+                              final enabled = value.text.trim().isNotEmpty;
+                              return Padding(
+                                padding: const EdgeInsets.all(7),
+                                child: buildComposerAction(
+                                  enabled: enabled,
+                                  tooltip: "Durumu gönder",
+                                  onPressed: () =>
+                                      submitCustomStatus(sheetContext),
+                                ),
+                              );
+                            },
+                          ),
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(20),
+                            borderSide: BorderSide(color: controlBorder),
+                          ),
+                          enabledBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(20),
+                            borderSide: BorderSide(color: controlBorder),
+                          ),
+                          focusedBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(20),
+                            borderSide: BorderSide(
+                              color: focusedBorder,
+                              width: 1.2,
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 20),
+                      Row(
+                        children: [
+                          Text("Mini not", style: sectionLabelStyle),
+                          const Spacer(),
+                          ValueListenableBuilder<TextEditingValue>(
+                            valueListenable: noteController,
+                            builder: (context, value, child) {
+                              return Text(
+                                "${value.text.length}/80",
+                                style: GoogleFonts.inter(
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w500,
+                                  color: mutedColor,
+                                  letterSpacing: 0,
+                                ),
+                              );
+                            },
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 9),
+                      Stack(
+                        children: [
+                          TextField(
+                            controller: noteController,
+                            maxLength: 80,
+                            minLines: 3,
+                            maxLines: 3,
+                            textInputAction: TextInputAction.newline,
+                            cursorColor: textColor,
+                            style: GoogleFonts.inter(
+                              color: textColor,
+                              fontSize: 14.5,
+                              fontWeight: FontWeight.w400,
+                              letterSpacing: 0,
+                              height: 1.35,
+                            ),
+                            decoration: InputDecoration(
+                              hintText:
+                                  "Partnerinin kartında görünecek kısa bir not yaz.",
+                              hintStyle: GoogleFonts.inter(
+                                fontSize: 14,
+                                fontWeight: FontWeight.w400,
+                                color: mutedColor,
+                                letterSpacing: 0,
+                                height: 1.35,
+                              ),
+                              counterText: "",
+                              filled: true,
+                              fillColor: inputSurface,
+                              contentPadding: const EdgeInsets.fromLTRB(
+                                16,
+                                14,
+                                58,
+                                14,
+                              ),
+                              border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(22),
+                                borderSide: BorderSide(color: controlBorder),
+                              ),
+                              enabledBorder: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(22),
+                                borderSide: BorderSide(color: controlBorder),
+                              ),
+                              focusedBorder: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(22),
+                                borderSide: BorderSide(
+                                  color: focusedBorder,
+                                  width: 1.2,
+                                ),
+                              ),
+                            ),
+                          ),
+                          Positioned(
+                            right: 8,
+                            bottom: 8,
+                            child: ValueListenableBuilder<TextEditingValue>(
+                              valueListenable: noteController,
+                              builder: (context, value, child) {
+                                final enabled = value.text.trim().isNotEmpty;
+                                return buildComposerAction(
+                                  enabled: enabled,
+                                  tooltip: "Notu gönder",
+                                  onPressed: () => submitNote(sheetContext),
+                                );
+                              },
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      Container(
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(20),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withValues(
+                                alpha: isDark ? 0.16 : 0.055,
+                              ),
+                              blurRadius: 14,
+                              offset: const Offset(0, 5),
+                            ),
+                          ],
+                        ),
+                        child: Material(
+                          color: controlSurface,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(20),
+                            side: BorderSide(color: controlBorder),
+                          ),
+                          clipBehavior: Clip.antiAlias,
+                          child: InkWell(
+                            onTap: () {
+                              Navigator.of(sheetContext).pop(true);
+                            },
+                            splashColor: textColor.withValues(alpha: 0.06),
+                            highlightColor: textColor.withValues(alpha: 0.035),
+                            child: SizedBox(
+                              height: 52,
+                              child: Padding(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 12,
+                                ),
+                                child: Row(
+                                  children: [
+                                    Container(
+                                      width: 32,
+                                      height: 32,
+                                      decoration: BoxDecoration(
+                                        color: textColor.withValues(
+                                          alpha: 0.07,
+                                        ),
+                                        shape: BoxShape.circle,
+                                      ),
+                                      alignment: Alignment.center,
+                                      child: Icon(
+                                        Icons.draw_outlined,
+                                        size: 17,
+                                        color: textColor,
+                                      ),
+                                    ),
+                                    const SizedBox(width: 11),
+                                    Expanded(
+                                      child: Text(
+                                        "Çizim gönder",
+                                        style: GoogleFonts.inter(
+                                          fontSize: 14.5,
+                                          fontWeight: FontWeight.w600,
+                                          color: textColor,
+                                          letterSpacing: 0,
+                                        ),
+                                      ),
+                                    ),
+                                    Icon(
+                                      Icons.chevron_right_rounded,
+                                      size: 20,
+                                      color: mutedColor,
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
-                ],
-              ),
-              const SizedBox(height: 18),
-              Divider(color: borderColor),
-              const SizedBox(height: 14),
-              Text(
-                "Mini not",
-                style: GoogleFonts.kadwa(
-                  fontSize: 14,
-                  fontWeight: FontWeight.bold,
-                  color: textColor,
                 ),
               ),
-              const SizedBox(height: 8),
-              TextField(
-                controller: noteController,
-                maxLength: 80,
-                minLines: 2,
-                maxLines: 3,
-                style: GoogleFonts.kadwa(color: textColor, fontSize: 14),
-                decoration: InputDecoration(
-                  hintText: "Partnerinin kartında görünecek kısa bir not yaz.",
-                  hintStyle: GoogleFonts.kadwa(fontSize: 13, color: mutedColor),
-                  counterStyle: GoogleFonts.kadwa(
-                    fontSize: 11,
-                    color: mutedColor,
-                  ),
-                  filled: true,
-                  fillColor: inputBg,
-                  contentPadding: const EdgeInsets.all(14),
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(14),
-                    borderSide: BorderSide(color: borderColor),
-                  ),
-                  enabledBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(14),
-                    borderSide: BorderSide(color: borderColor),
-                  ),
-                  focusedBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(14),
-                    borderSide: const BorderSide(
-                      color: Colors.blueAccent,
-                      width: 1.6,
-                    ),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 8),
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton.icon(
-                  onPressed: () async {
-                    final nav = Navigator.of(context);
-                    final note = noteController.text.trim();
-                    if (note.isEmpty) return;
-                    try {
-                      await _sendPartnerNote(myUid, note);
-                      nav.pop();
-                      if (parentContext.mounted) {
-                        AppFeedback.show(
-                          parentContext,
-                          "Mini not gönderildi.",
-                          type: AppFeedbackType.success,
-                        );
-                      }
-                    } catch (_) {
-                      if (parentContext.mounted) {
-                        AppFeedback.show(
-                          parentContext,
-                          "Mini not gönderilemedi.",
-                          type: AppFeedbackType.error,
-                        );
-                      }
-                    }
-                  },
-                  icon: const Icon(Icons.mail_outline, size: 18),
-                  label: Text(
-                    "Notu gönder",
-                    style: GoogleFonts.kadwa(fontWeight: FontWeight.bold),
-                  ),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF0A2342),
-                    foregroundColor: Colors.white,
-                    elevation: 0,
-                    padding: const EdgeInsets.symmetric(vertical: 13),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(14),
-                    ),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 10),
-              SizedBox(
-                width: double.infinity,
-                child: OutlinedButton.icon(
-                  onPressed: () {
-                    Navigator.pop(context);
-                    _showSketchComposer(parentContext, myUid);
-                  },
-                  icon: const Icon(Icons.draw_outlined, size: 18),
-                  label: Text(
-                    "Çizim gönder",
-                    style: GoogleFonts.kadwa(fontWeight: FontWeight.bold),
-                  ),
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: textColor,
-                    side: BorderSide(color: borderColor),
-                    padding: const EdgeInsets.symmetric(vertical: 13),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(14),
-                    ),
-                  ),
-                ),
-              ),
-            ],
+            ),
           ),
         );
       },
     );
+
+    // Navigator pop gelecegi kapanis animasyonundan once tamamlanabilir.
+    // Eski sheet sokulmeden controller temizleme veya yeni sheet acma.
+    while (activeSheetContext?.mounted ?? false) {
+      await WidgetsBinding.instance.endOfFrame;
+    }
+
+    customStatusController.dispose();
+    noteController.dispose();
+
+    if (openSketch == true && parentContext.mounted) {
+      _showSketchComposer(parentContext, myUid);
+    }
   }
 
   Widget _buildSharedItemsSection({
@@ -1298,35 +1457,63 @@ class _PartnerWidgetState extends State<PartnerWidget> {
           children: [
             Text(
               "Paylaştıkların",
-              style: GoogleFonts.kadwa(
-                fontSize: 14,
-                fontWeight: FontWeight.bold,
-                color: textColor,
+              style: GoogleFonts.inter(
+                fontSize: 12.5,
+                fontWeight: FontWeight.w600,
+                color: mutedColor,
+                letterSpacing: 0,
+                height: 1.1,
               ),
             ),
-            const SizedBox(height: 8),
+            const SizedBox(height: 10),
             if (!hasNote && !hasSketch)
               Container(
                 width: double.infinity,
-                padding: const EdgeInsets.all(13),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 11,
+                ),
                 decoration: BoxDecoration(
                   color: inputBg,
-                  borderRadius: BorderRadius.circular(14),
+                  borderRadius: BorderRadius.circular(18),
                   border: Border.all(color: borderColor),
                 ),
-                child: Text(
-                  "Henüz paylaştığın bir not veya çizim yok.",
-                  style: GoogleFonts.kadwa(
-                    fontSize: 12,
-                    color: mutedColor,
-                    height: 1.2,
-                  ),
+                child: Row(
+                  children: [
+                    Container(
+                      width: 30,
+                      height: 30,
+                      decoration: BoxDecoration(
+                        color: mutedColor.withValues(alpha: 0.08),
+                        shape: BoxShape.circle,
+                      ),
+                      alignment: Alignment.center,
+                      child: Icon(
+                        Icons.inbox_outlined,
+                        size: 16,
+                        color: mutedColor,
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        "Henüz paylaştığın bir not veya çizim yok.",
+                        style: GoogleFonts.inter(
+                          fontSize: 12.5,
+                          fontWeight: FontWeight.w400,
+                          color: mutedColor,
+                          letterSpacing: 0,
+                          height: 1.25,
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
               ),
             if (hasNote)
               _buildSharedItemCard(
                 title: "Mini not",
-                icon: Icons.mail_outline,
+                icon: Icons.mail_outline_rounded,
                 textColor: textColor,
                 mutedColor: mutedColor,
                 inputBg: inputBg,
@@ -1359,10 +1546,12 @@ class _PartnerWidgetState extends State<PartnerWidget> {
                 },
                 child: Text(
                   noteText,
-                  style: GoogleFonts.kadwa(
-                    fontSize: 12,
+                  style: GoogleFonts.inter(
+                    fontSize: 12.5,
+                    fontWeight: FontWeight.w400,
                     color: mutedColor,
-                    height: 1.2,
+                    letterSpacing: 0,
+                    height: 1.25,
                   ),
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,
@@ -1370,13 +1559,14 @@ class _PartnerWidgetState extends State<PartnerWidget> {
               ),
             if (hasNote && hasSketch) const SizedBox(height: 8),
             if (hasSketch)
-              _buildSharedItemCard(
-                title: "Çizim",
-                icon: Icons.draw_outlined,
+              _buildSharedSketchCard(
+                context: context,
+                strokes: sketchStrokes,
                 textColor: textColor,
                 mutedColor: mutedColor,
                 inputBg: inputBg,
                 borderColor: borderColor,
+                onOpen: () => _showSketchPreview(context, sketchStrokes),
                 onDelete: () async {
                   final confirmed = await _confirmSharedItemDelete(
                     feedbackContext,
@@ -1403,23 +1593,6 @@ class _PartnerWidgetState extends State<PartnerWidget> {
                     }
                   }
                 },
-                child: GestureDetector(
-                  onTap: () => _showSketchPreview(context, sketchStrokes),
-                  child: Container(
-                    height: 58,
-                    decoration: BoxDecoration(
-                      color: mutedColor.withValues(alpha: 0.08),
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: ClipRRect(
-                      borderRadius: BorderRadius.circular(12),
-                      child: CustomPaint(
-                        painter: _SketchPainter(sketchStrokes),
-                        child: const SizedBox.expand(),
-                      ),
-                    ),
-                  ),
-                ),
               ),
           ],
         );
@@ -1495,6 +1668,114 @@ class _PartnerWidgetState extends State<PartnerWidget> {
     return result == true;
   }
 
+  Widget _buildSharedSketchCard({
+    required BuildContext context,
+    required List<_SketchStroke> strokes,
+    required Color textColor,
+    required Color mutedColor,
+    required Color inputBg,
+    required Color borderColor,
+    required VoidCallback onOpen,
+    required Future<void> Function() onDelete,
+  }) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final paperColor = isDark
+        ? const Color(0xFFF5F5F7).withValues(alpha: 0.94)
+        : const Color(0xFFF2F2F7).withValues(alpha: 0.88);
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(11, 10, 11, 11),
+      decoration: BoxDecoration(
+        color: inputBg,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: borderColor),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: isDark ? 0.12 : 0.045),
+            blurRadius: 12,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 30,
+                height: 30,
+                decoration: BoxDecoration(
+                  color: textColor.withValues(alpha: 0.065),
+                  shape: BoxShape.circle,
+                ),
+                alignment: Alignment.center,
+                child: Icon(Icons.draw_outlined, size: 16, color: textColor),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  "Çizim",
+                  style: GoogleFonts.inter(
+                    fontSize: 12.5,
+                    fontWeight: FontWeight.w600,
+                    color: textColor,
+                    letterSpacing: 0,
+                    height: 1.1,
+                  ),
+                ),
+              ),
+              IconButton(
+                tooltip: "Çizimi sil",
+                onPressed: onDelete,
+                icon: const Icon(Icons.delete_outline_rounded, size: 17),
+                style: IconButton.styleFrom(
+                  foregroundColor: mutedColor,
+                  backgroundColor: mutedColor.withValues(alpha: 0.08),
+                  fixedSize: const Size.square(34),
+                  padding: EdgeInsets.zero,
+                  shape: const CircleBorder(),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 9),
+          Semantics(
+            button: true,
+            label: "Çizimi büyüt",
+            child: Material(
+              color: paperColor,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(16),
+                side: BorderSide(color: Colors.black.withValues(alpha: 0.055)),
+              ),
+              clipBehavior: Clip.antiAlias,
+              child: InkWell(
+                onTap: onOpen,
+                splashColor: textColor.withValues(alpha: 0.05),
+                highlightColor: textColor.withValues(alpha: 0.025),
+                child: SizedBox(
+                  width: double.infinity,
+                  height: 150,
+                  child: Center(
+                    child: AspectRatio(
+                      aspectRatio: 1,
+                      child: CustomPaint(
+                        painter: _SketchPainter(strokes),
+                        child: const SizedBox.expand(),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildSharedItemCard({
     required String title,
     required IconData icon,
@@ -1507,50 +1788,74 @@ class _PartnerWidgetState extends State<PartnerWidget> {
   }) {
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.fromLTRB(13, 11, 9, 11),
+      padding: const EdgeInsets.fromLTRB(11, 10, 8, 10),
       decoration: BoxDecoration(
         color: inputBg,
-        borderRadius: BorderRadius.circular(14),
+        borderRadius: BorderRadius.circular(18),
         border: Border.all(color: borderColor),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.045),
+            blurRadius: 12,
+            offset: const Offset(0, 4),
+          ),
+        ],
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(icon, size: 17, color: mutedColor),
-          const SizedBox(width: 9),
+          Container(
+            width: 30,
+            height: 30,
+            decoration: BoxDecoration(
+              color: textColor.withValues(alpha: 0.065),
+              shape: BoxShape.circle,
+            ),
+            alignment: Alignment.center,
+            child: Icon(icon, size: 16, color: textColor),
+          ),
+          const SizedBox(width: 10),
           Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  title,
-                  style: GoogleFonts.kadwa(
-                    fontSize: 12,
-                    fontWeight: FontWeight.bold,
-                    color: textColor,
-                    height: 1,
+            child: Padding(
+              padding: const EdgeInsets.only(top: 2),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    style: GoogleFonts.inter(
+                      fontSize: 11.5,
+                      fontWeight: FontWeight.w600,
+                      color: textColor,
+                      letterSpacing: 0,
+                      height: 1.1,
+                    ),
                   ),
-                ),
-                const SizedBox(height: 7),
-                child,
-              ],
+                  const SizedBox(height: 6),
+                  child,
+                ],
+              ),
             ),
           ),
+          const SizedBox(width: 6),
           IconButton(
             tooltip: "$title sil",
             onPressed: onDelete,
-            icon: const Icon(Icons.delete_outline, size: 19),
-            color: mutedColor,
-            visualDensity: VisualDensity.compact,
-            padding: EdgeInsets.zero,
-            constraints: const BoxConstraints(minWidth: 34, minHeight: 34),
+            icon: const Icon(Icons.delete_outline_rounded, size: 17),
+            style: IconButton.styleFrom(
+              foregroundColor: mutedColor,
+              backgroundColor: mutedColor.withValues(alpha: 0.08),
+              fixedSize: const Size.square(34),
+              padding: EdgeInsets.zero,
+              shape: const CircleBorder(),
+            ),
           ),
         ],
       ),
     );
   }
 
-  // --- İKONLU BUTON ---
+  // --- HAZIR DURUM BUTONU ---
   Widget _statusButton(
     BuildContext context,
     BuildContext feedbackContext,
@@ -1561,59 +1866,99 @@ class _PartnerWidgetState extends State<PartnerWidget> {
     Color textColor,
     Color borderColor,
   ) {
-    return GestureDetector(
-      onTap: () async {
-        final nav = Navigator.of(context);
-        try {
-          await _updateStatus(myUid, icon, text);
-          _notifyPartner(myUid, icon, text);
-          nav.pop();
-          if (feedbackContext.mounted) {
-            AppFeedback.show(
-              feedbackContext,
-              "Durum güncellendi.",
-              type: AppFeedbackType.success,
-            );
-          }
-        } catch (_) {
-          if (feedbackContext.mounted) {
-            AppFeedback.show(
-              feedbackContext,
-              "Durum güncellenemedi.",
-              type: AppFeedbackType.error,
-            );
-          }
-        }
-      },
-      child: Container(
-        height: 40,
-        margin: const EdgeInsets.only(right: 8),
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-        decoration: BoxDecoration(
-          color: bgColor,
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: borderColor),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            _buildStatusMark(icon, textColor, size: 18),
-            const SizedBox(width: 8),
-            ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 122),
-              child: Text(
-                text,
-                style: GoogleFonts.kadwa(
-                  fontSize: 12,
-                  color: textColor,
-                  fontWeight: FontWeight.bold,
-                  height: 1,
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
+    return Padding(
+      padding: const EdgeInsets.only(right: 8, bottom: 4),
+      child: Semantics(
+        button: true,
+        label: "Durumu $text olarak güncelle",
+        child: Container(
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(22),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: isDark ? 0.16 : 0.06),
+                blurRadius: 12,
+                offset: const Offset(0, 4),
+              ),
+            ],
+          ),
+          child: Material(
+            color: bgColor,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(22),
+              side: BorderSide(color: borderColor),
+            ),
+            clipBehavior: Clip.antiAlias,
+            child: InkWell(
+              onTap: () async {
+                final nav = Navigator.of(context);
+                try {
+                  await _updateStatus(myUid, icon, text);
+                  _notifyPartner(myUid, icon, text);
+                  if (context.mounted) nav.pop();
+                  if (feedbackContext.mounted) {
+                    AppFeedback.show(
+                      feedbackContext,
+                      "Durum güncellendi.",
+                      type: AppFeedbackType.success,
+                    );
+                  }
+                } catch (_) {
+                  if (feedbackContext.mounted) {
+                    AppFeedback.show(
+                      feedbackContext,
+                      "Durum güncellenemedi.",
+                      type: AppFeedbackType.error,
+                    );
+                  }
+                }
+              },
+              splashColor: textColor.withValues(alpha: 0.06),
+              highlightColor: textColor.withValues(alpha: 0.035),
+              child: SizedBox(
+                height: 44,
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(8, 6, 13, 6),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Container(
+                        width: 30,
+                        height: 30,
+                        decoration: BoxDecoration(
+                          color: textColor.withValues(alpha: 0.07),
+                          shape: BoxShape.circle,
+                          border: Border.all(
+                            color: textColor.withValues(alpha: 0.045),
+                          ),
+                        ),
+                        alignment: Alignment.center,
+                        child: _buildStatusMark(icon, textColor, size: 16),
+                      ),
+                      const SizedBox(width: 8),
+                      ConstrainedBox(
+                        constraints: const BoxConstraints(maxWidth: 124),
+                        child: Text(
+                          text,
+                          style: GoogleFonts.inter(
+                            fontSize: 13,
+                            color: textColor,
+                            fontWeight: FontWeight.w600,
+                            letterSpacing: 0,
+                            height: 1,
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
               ),
             ),
-          ],
+          ),
         ),
       ),
     );
@@ -1717,51 +2062,87 @@ class _PartnerWidgetState extends State<PartnerWidget> {
   void _showSketchComposer(BuildContext context, String myUid) {
     final feedbackContext = context;
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final sheetBg = isDark ? const Color(0xFF1E1E1E) : Colors.white;
-    final textColor = isDark ? Colors.white : Colors.black87;
-    final mutedColor = isDark ? Colors.grey[400]! : Colors.grey[600]!;
+    final highContrast = MediaQuery.of(context).highContrast;
+    final glassTint = isDark
+        ? const Color(0xFF141416).withValues(alpha: highContrast ? 0.96 : 0.82)
+        : Colors.white.withValues(alpha: highContrast ? 0.97 : 0.78);
+    final glassBorder = isDark
+        ? Colors.white.withValues(alpha: 0.16)
+        : Colors.white.withValues(alpha: 0.88);
 
-    showModalBottomSheet(
+    showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
-      backgroundColor: sheetBg,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      builder: (context) => Padding(
-        padding: EdgeInsets.fromLTRB(
-          20,
-          14,
-          20,
-          MediaQuery.of(context).viewInsets.bottom + 24,
-        ),
-        child: _SketchComposer(
-          textColor: textColor,
-          mutedColor: mutedColor,
-          onSend: (strokes) async {
-            final nav = Navigator.of(context);
-            try {
-              await _sendPartnerSketch(myUid, strokes);
-              nav.pop();
-              if (feedbackContext.mounted) {
-                AppFeedback.show(
-                  feedbackContext,
-                  "Çizim gönderildi.",
-                  type: AppFeedbackType.success,
-                );
-              }
-            } catch (_) {
-              if (feedbackContext.mounted) {
-                AppFeedback.show(
-                  feedbackContext,
-                  "Çizim gönderilemedi.",
-                  type: AppFeedbackType.error,
-                );
-              }
-            }
-          },
-        ),
-      ),
+      useSafeArea: true,
+      backgroundColor: Colors.transparent,
+      barrierColor: Colors.black.withValues(alpha: isDark ? 0.58 : 0.26),
+      constraints: const BoxConstraints(maxWidth: 640),
+      builder: (sheetContext) {
+        final mediaQuery = MediaQuery.of(sheetContext);
+
+        return Container(
+          width: double.infinity,
+          decoration: BoxDecoration(
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(30)),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: isDark ? 0.34 : 0.16),
+                blurRadius: 34,
+                offset: const Offset(0, -10),
+              ),
+            ],
+          ),
+          child: ClipRRect(
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(30)),
+            child: BackdropFilter(
+              filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  color: glassTint,
+                  border: Border.all(color: glassBorder),
+                  borderRadius: const BorderRadius.vertical(
+                    top: Radius.circular(30),
+                  ),
+                ),
+                child: SingleChildScrollView(
+                  physics: const BouncingScrollPhysics(),
+                  padding: EdgeInsets.fromLTRB(
+                    18,
+                    10,
+                    18,
+                    mediaQuery.viewInsets.bottom + 20,
+                  ),
+                  child: _SketchComposer(
+                    onClose: () => Navigator.of(sheetContext).pop(),
+                    onSend: (strokes) async {
+                      final nav = Navigator.of(sheetContext);
+                      try {
+                        await _sendPartnerSketch(myUid, strokes);
+                        if (sheetContext.mounted) nav.pop();
+                        if (feedbackContext.mounted) {
+                          AppFeedback.show(
+                            feedbackContext,
+                            "Çizim gönderildi.",
+                            type: AppFeedbackType.success,
+                          );
+                        }
+                      } catch (_) {
+                        if (feedbackContext.mounted) {
+                          AppFeedback.show(
+                            feedbackContext,
+                            "Çizim gönderilemedi.",
+                            type: AppFeedbackType.error,
+                          );
+                        }
+                      }
+                    },
+                  ),
+                ),
+              ),
+            ),
+          ),
+        );
+      },
     );
   }
 
@@ -1883,14 +2264,9 @@ class _PartnerShare {
 }
 
 class _SketchComposer extends StatefulWidget {
-  const _SketchComposer({
-    required this.textColor,
-    required this.mutedColor,
-    required this.onSend,
-  });
+  const _SketchComposer({required this.onClose, required this.onSend});
 
-  final Color textColor;
-  final Color mutedColor;
+  final VoidCallback onClose;
   final Future<void> Function(List<_SketchStroke> strokes) onSend;
 
   @override
@@ -1941,8 +2317,34 @@ class _SketchComposerState extends State<_SketchComposer> {
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final canvasBg = isDark ? const Color(0xFF262626) : const Color(0xFFF6F8FA);
-    final borderColor = isDark ? Colors.grey[850]! : const Color(0xFFE9EEF4);
+    final highContrast = MediaQuery.of(context).highContrast;
+    final textColor = isDark
+        ? const Color(0xFFF5F5F7)
+        : const Color(0xFF111114);
+    final mutedColor = isDark
+        ? const Color(0xFFA1A1A6)
+        : const Color(0xFF6E6E73);
+    final controlSurface = isDark
+        ? Colors.white.withValues(alpha: highContrast ? 0.14 : 0.08)
+        : Colors.white.withValues(alpha: highContrast ? 0.92 : 0.58);
+    final canvasSurface = isDark
+        ? const Color(0xFF222225).withValues(alpha: highContrast ? 0.98 : 0.92)
+        : const Color(0xFFF8F8FA).withValues(alpha: highContrast ? 1 : 0.94);
+    final controlBorder = isDark
+        ? Colors.white.withValues(alpha: 0.13)
+        : Colors.black.withValues(alpha: 0.065);
+    final actionBackground = isDark
+        ? const Color(0xFFF5F5F7)
+        : const Color(0xFF111114);
+    final actionForeground = isDark ? const Color(0xFF111114) : Colors.white;
+    final canSend = _strokes.isNotEmpty && !_isSending;
+    final sectionLabelStyle = GoogleFonts.inter(
+      fontSize: 12.5,
+      fontWeight: FontWeight.w600,
+      color: mutedColor,
+      letterSpacing: 0,
+      height: 1.1,
+    );
 
     return Column(
       mainAxisSize: MainAxisSize.min,
@@ -1950,119 +2352,230 @@ class _SketchComposerState extends State<_SketchComposer> {
       children: [
         Center(
           child: Container(
-            width: 38,
-            height: 4,
+            width: 36,
+            height: 5,
             decoration: BoxDecoration(
-              color: widget.mutedColor.withValues(alpha: 0.35),
-              borderRadius: BorderRadius.circular(2),
+              color: textColor.withValues(alpha: 0.2),
+              borderRadius: BorderRadius.circular(99),
             ),
           ),
         ),
-        const SizedBox(height: 18),
-        Text(
-          "Çizim gönder",
-          style: GoogleFonts.kadwa(
-            fontSize: 20,
-            fontWeight: FontWeight.bold,
-            color: widget.textColor,
-          ),
-        ),
-        Text(
-          "Küçük bir çizim bırak; partner kartında görünsün.",
-          style: GoogleFonts.kadwa(
-            fontSize: 13,
-            color: widget.mutedColor,
-            height: 1.25,
-          ),
-        ),
-        const SizedBox(height: 14),
-        AspectRatio(
-          aspectRatio: 1,
-          child: LayoutBuilder(
-            builder: (context, constraints) {
-              final canvasSize = Size(
-                constraints.maxWidth,
-                constraints.maxHeight,
-              );
-
-              return GestureDetector(
-                onPanStart: (details) =>
-                    _startStroke(details.localPosition, canvasSize),
-                onPanUpdate: (details) =>
-                    _extendStroke(details.localPosition, canvasSize),
-                child: Container(
-                  decoration: BoxDecoration(
-                    color: canvasBg,
-                    borderRadius: BorderRadius.circular(18),
-                    border: Border.all(color: borderColor),
-                  ),
-                  child: ClipRRect(
-                    borderRadius: BorderRadius.circular(18),
-                    child: CustomPaint(
-                      painter: _SketchPainter(_strokes),
-                      child: const SizedBox.expand(),
+        const SizedBox(height: 16),
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    "Çizim gönder",
+                    style: GoogleFonts.inter(
+                      fontSize: 24,
+                      fontWeight: FontWeight.w700,
+                      color: textColor,
+                      letterSpacing: 0,
+                      height: 1.12,
                     ),
                   ),
-                ),
-              );
-            },
-          ),
-        ),
-        const SizedBox(height: 12),
-        Row(
-          children: [
-            _colorButton(const Color(0xFF0A2342)),
-            _colorButton(const Color(0xFF1F91DC)),
-            _colorButton(const Color(0xFFE57373)),
-            _colorButton(const Color(0xFF2E7D32)),
-            const Spacer(),
-            IconButton(
-              tooltip: "Geri al",
-              onPressed: _strokes.isEmpty
-                  ? null
-                  : () => setState(() => _strokes.removeLast()),
-              icon: const Icon(Icons.undo),
-              color: widget.textColor,
+                  const SizedBox(height: 5),
+                  Text(
+                    "Partnerinin kartında görünecek bir çizim bırak.",
+                    style: GoogleFonts.inter(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w400,
+                      color: mutedColor,
+                      letterSpacing: 0,
+                      height: 1.25,
+                    ),
+                  ),
+                ],
+              ),
             ),
+            const SizedBox(width: 12),
             IconButton(
-              tooltip: "Temizle",
-              onPressed: _strokes.isEmpty
-                  ? null
-                  : () => setState(_strokes.clear),
-              icon: const Icon(Icons.delete_outline),
-              color: widget.textColor,
+              tooltip: "Kapat",
+              onPressed: widget.onClose,
+              icon: const Icon(Icons.close_rounded, size: 19),
+              style: IconButton.styleFrom(
+                foregroundColor: textColor,
+                backgroundColor: controlSurface,
+                fixedSize: const Size.square(38),
+                padding: EdgeInsets.zero,
+                side: BorderSide(color: controlBorder),
+                shape: const CircleBorder(),
+              ),
             ),
           ],
         ),
-        const SizedBox(height: 8),
-        SizedBox(
-          width: double.infinity,
-          child: ElevatedButton.icon(
-            onPressed: _strokes.isEmpty || _isSending ? null : _send,
-            icon: _isSending
-                ? const SizedBox(
-                    width: 16,
-                    height: 16,
-                    child: CircularProgressIndicator(
-                      strokeWidth: 2,
-                      color: Colors.white,
+        const SizedBox(height: 22),
+        Text("Çizim alanı", style: sectionLabelStyle),
+        const SizedBox(height: 10),
+        Container(
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(24),
+            border: Border.all(color: controlBorder),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: isDark ? 0.2 : 0.075),
+                blurRadius: 20,
+                offset: const Offset(0, 8),
+              ),
+            ],
+          ),
+          child: AspectRatio(
+            aspectRatio: 1,
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                final canvasSize = Size(
+                  constraints.maxWidth,
+                  constraints.maxHeight,
+                );
+
+                return GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onPanStart: _isSending
+                      ? null
+                      : (details) =>
+                            _startStroke(details.localPosition, canvasSize),
+                  onPanUpdate: _isSending
+                      ? null
+                      : (details) =>
+                            _extendStroke(details.localPosition, canvasSize),
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(24),
+                    child: ColoredBox(
+                      color: canvasSurface,
+                      child: RepaintBoundary(
+                        child: CustomPaint(
+                          painter: _SketchPainter(_strokes),
+                          child: const SizedBox.expand(),
+                        ),
+                      ),
                     ),
-                  )
-                : const Icon(Icons.send_outlined, size: 18),
-            label: Text(
-              "Çizimi gönder",
-              style: GoogleFonts.kadwa(fontWeight: FontWeight.bold),
+                  ),
+                );
+              },
             ),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFF0A2342),
-              foregroundColor: Colors.white,
-              disabledBackgroundColor: const Color(
-                0xFF0A2342,
-              ).withValues(alpha: 0.45),
-              elevation: 0,
-              padding: const EdgeInsets.symmetric(vertical: 13),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(14),
+          ),
+        ),
+        const SizedBox(height: 14),
+        Container(
+          height: 58,
+          padding: const EdgeInsets.symmetric(horizontal: 7),
+          decoration: BoxDecoration(
+            color: controlSurface,
+            borderRadius: BorderRadius.circular(22),
+            border: Border.all(color: controlBorder),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: isDark ? 0.16 : 0.055),
+                blurRadius: 14,
+                offset: const Offset(0, 5),
+              ),
+            ],
+          ),
+          child: Row(
+            children: [
+              _colorButton(
+                const Color(0xFF0A2342),
+                "Gece laciverti",
+                textColor,
+              ),
+              _colorButton(const Color(0xFF1F91DC), "Mavi", textColor),
+              _colorButton(const Color(0xFFE57373), "Kırmızı", textColor),
+              _colorButton(const Color(0xFF2E7D32), "Yeşil", textColor),
+              const Spacer(),
+              _toolButton(
+                icon: Icons.undo_rounded,
+                tooltip: "Geri al",
+                onPressed: _strokes.isEmpty || _isSending
+                    ? null
+                    : () => setState(() => _strokes.removeLast()),
+                textColor: textColor,
+                mutedColor: mutedColor,
+              ),
+              const SizedBox(width: 4),
+              _toolButton(
+                icon: Icons.delete_outline_rounded,
+                tooltip: "Temizle",
+                onPressed: _strokes.isEmpty || _isSending
+                    ? null
+                    : () => setState(_strokes.clear),
+                textColor: textColor,
+                mutedColor: mutedColor,
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 12),
+        AnimatedContainer(
+          duration: const Duration(milliseconds: 180),
+          curve: Curves.easeOut,
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(20),
+            boxShadow: canSend
+                ? [
+                    BoxShadow(
+                      color: Colors.black.withValues(
+                        alpha: isDark ? 0.24 : 0.14,
+                      ),
+                      blurRadius: 18,
+                      offset: const Offset(0, 7),
+                    ),
+                  ]
+                : const [],
+          ),
+          child: SizedBox(
+            width: double.infinity,
+            height: 52,
+            child: FilledButton.icon(
+              onPressed: canSend ? _send : null,
+              icon: AnimatedSwitcher(
+                duration: const Duration(milliseconds: 160),
+                child: _isSending
+                    ? SizedBox(
+                        key: const ValueKey("sending"),
+                        width: 17,
+                        height: 17,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: actionForeground,
+                        ),
+                      )
+                    : const Icon(
+                        Icons.send_rounded,
+                        key: ValueKey("send"),
+                        size: 18,
+                      ),
+              ),
+              label: Text(
+                _isSending ? "Gönderiliyor..." : "Çizimi gönder",
+                style: GoogleFonts.inter(
+                  fontSize: 14.5,
+                  fontWeight: FontWeight.w600,
+                  letterSpacing: 0,
+                ),
+              ),
+              style: FilledButton.styleFrom(
+                backgroundColor: actionBackground,
+                foregroundColor: actionForeground,
+                disabledBackgroundColor: _isSending
+                    ? actionBackground.withValues(alpha: 0.82)
+                    : controlSurface,
+                disabledForegroundColor: _isSending
+                    ? actionForeground
+                    : mutedColor.withValues(alpha: 0.58),
+                elevation: 0,
+                padding: const EdgeInsets.symmetric(horizontal: 18),
+                side: BorderSide(
+                  color: canSend || _isSending
+                      ? Colors.transparent
+                      : controlBorder,
+                ),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(20),
+                ),
               ),
             ),
           ),
@@ -2071,25 +2584,92 @@ class _SketchComposerState extends State<_SketchComposer> {
     );
   }
 
-  Widget _colorButton(Color color) {
+  Widget _colorButton(Color color, String label, Color selectionColor) {
     final selected = _selectedColor == color;
 
-    return Padding(
-      padding: const EdgeInsets.only(right: 8),
-      child: GestureDetector(
-        onTap: () => setState(() => _selectedColor = color),
-        child: Container(
-          width: 28,
-          height: 28,
-          decoration: BoxDecoration(
-            color: color,
-            shape: BoxShape.circle,
-            border: Border.all(
-              color: selected ? widget.textColor : Colors.transparent,
-              width: 2,
+    return Tooltip(
+      message: label,
+      child: Semantics(
+        button: true,
+        selected: selected,
+        label: "$label çizim rengi",
+        child: Material(
+          color: Colors.transparent,
+          child: InkWell(
+            customBorder: const CircleBorder(),
+            onTap: _isSending
+                ? null
+                : () => setState(() => _selectedColor = color),
+            child: SizedBox(
+              width: 40,
+              height: 48,
+              child: Center(
+                child: AnimatedScale(
+                  scale: selected ? 1 : 0.92,
+                  duration: const Duration(milliseconds: 180),
+                  curve: Curves.easeOutBack,
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 180),
+                    width: 34,
+                    height: 34,
+                    padding: EdgeInsets.all(selected ? 4 : 6),
+                    decoration: BoxDecoration(
+                      color: selected
+                          ? selectionColor.withValues(alpha: 0.07)
+                          : Colors.transparent,
+                      shape: BoxShape.circle,
+                      border: Border.all(
+                        color: selected
+                            ? selectionColor.withValues(alpha: 0.52)
+                            : Colors.transparent,
+                        width: 1.5,
+                      ),
+                    ),
+                    child: DecoratedBox(
+                      decoration: BoxDecoration(
+                        color: color,
+                        shape: BoxShape.circle,
+                        border: Border.all(
+                          color: Colors.white.withValues(alpha: 0.28),
+                        ),
+                      ),
+                      child: selected
+                          ? const Icon(
+                              Icons.check_rounded,
+                              size: 14,
+                              color: Colors.white,
+                            )
+                          : null,
+                    ),
+                  ),
+                ),
+              ),
             ),
           ),
         ),
+      ),
+    );
+  }
+
+  Widget _toolButton({
+    required IconData icon,
+    required String tooltip,
+    required VoidCallback? onPressed,
+    required Color textColor,
+    required Color mutedColor,
+  }) {
+    return IconButton(
+      tooltip: tooltip,
+      onPressed: onPressed,
+      icon: Icon(icon, size: 19),
+      style: IconButton.styleFrom(
+        foregroundColor: textColor,
+        backgroundColor: textColor.withValues(alpha: 0.065),
+        disabledForegroundColor: mutedColor.withValues(alpha: 0.38),
+        disabledBackgroundColor: mutedColor.withValues(alpha: 0.035),
+        fixedSize: const Size.square(38),
+        padding: EdgeInsets.zero,
+        shape: const CircleBorder(),
       ),
     );
   }
@@ -2136,12 +2716,23 @@ class _SketchStroke {
 }
 
 class _SketchPainter extends CustomPainter {
-  const _SketchPainter(this.strokes);
+  const _SketchPainter(
+    this.strokes, {
+    this.fitToContent = false,
+    this.previewPadding = 0,
+  });
 
   final List<_SketchStroke> strokes;
+  final bool fitToContent;
+  final double previewPadding;
 
   @override
   void paint(Canvas canvas, Size size) {
+    final mapPoint = fitToContent
+        ? _contentFittedMapper(size)
+        : (Offset point) =>
+              Offset(point.dx * size.width, point.dy * size.height);
+
     for (final stroke in strokes) {
       if (stroke.points.isEmpty) continue;
 
@@ -2154,23 +2745,98 @@ class _SketchPainter extends CustomPainter {
 
       final path = Path();
       final first = stroke.points.first;
+      final firstPoint = mapPoint(first);
       if (stroke.points.length == 1) {
         canvas.drawCircle(
-          Offset(first.dx * size.width, first.dy * size.height),
+          firstPoint,
           stroke.width / 2,
           paint..style = PaintingStyle.fill,
         );
         continue;
       }
 
-      path.moveTo(first.dx * size.width, first.dy * size.height);
+      path.moveTo(firstPoint.dx, firstPoint.dy);
 
       for (final point in stroke.points.skip(1)) {
-        path.lineTo(point.dx * size.width, point.dy * size.height);
+        final mappedPoint = mapPoint(point);
+        path.lineTo(mappedPoint.dx, mappedPoint.dy);
       }
 
       canvas.drawPath(path, paint);
     }
+  }
+
+  Offset Function(Offset) _contentFittedMapper(Size size) {
+    var hasPoint = false;
+    var minX = 0.0;
+    var maxX = 0.0;
+    var minY = 0.0;
+    var maxY = 0.0;
+
+    for (final stroke in strokes) {
+      for (final point in stroke.points) {
+        if (!hasPoint) {
+          minX = maxX = point.dx;
+          minY = maxY = point.dy;
+          hasPoint = true;
+          continue;
+        }
+        if (point.dx < minX) minX = point.dx;
+        if (point.dx > maxX) maxX = point.dx;
+        if (point.dy < minY) minY = point.dy;
+        if (point.dy > maxY) maxY = point.dy;
+      }
+    }
+
+    Offset defaultMapper(Offset point) =>
+        Offset(point.dx * size.width, point.dy * size.height);
+    if (!hasPoint) return defaultMapper;
+
+    // Compact previews trim empty canvas space, then scale uniformly so the
+    // normalized square drawing remains undistorted in a horizontal frame.
+    const minimumSpan = 0.12;
+    var sourceWidth = maxX - minX;
+    var sourceHeight = maxY - minY;
+    if (sourceWidth < minimumSpan) {
+      final centerX = (minX + maxX) / 2;
+      minX = centerX - minimumSpan / 2;
+      maxX = centerX + minimumSpan / 2;
+      sourceWidth = minimumSpan;
+    }
+    if (sourceHeight < minimumSpan) {
+      final centerY = (minY + maxY) / 2;
+      minY = centerY - minimumSpan / 2;
+      maxY = centerY + minimumSpan / 2;
+      sourceHeight = minimumSpan;
+    }
+
+    final dominantSpan = sourceWidth > sourceHeight
+        ? sourceWidth
+        : sourceHeight;
+    final sourceMargin = dominantSpan * 0.09;
+    minX -= sourceMargin;
+    maxX += sourceMargin;
+    minY -= sourceMargin;
+    maxY += sourceMargin;
+    sourceWidth = maxX - minX;
+    sourceHeight = maxY - minY;
+
+    final availableWidth = size.width - previewPadding * 2;
+    final availableHeight = size.height - previewPadding * 2;
+    if (availableWidth <= 0 || availableHeight <= 0) return defaultMapper;
+
+    final scaleX = availableWidth / sourceWidth;
+    final scaleY = availableHeight / sourceHeight;
+    final scale = scaleX < scaleY ? scaleX : scaleY;
+    final fittedWidth = sourceWidth * scale;
+    final fittedHeight = sourceHeight * scale;
+    final originX = (size.width - fittedWidth) / 2;
+    final originY = (size.height - fittedHeight) / 2;
+
+    return (point) => Offset(
+      originX + (point.dx - minX) * scale,
+      originY + (point.dy - minY) * scale,
+    );
   }
 
   @override
