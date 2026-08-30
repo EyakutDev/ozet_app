@@ -1,8 +1,11 @@
 import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:ozet_app/models/daily_score_entry.dart';
+import 'package:ozet_app/screens/daily_score_statistics_screen.dart';
+import 'package:ozet_app/theme/app_theme_palette.dart';
 import 'package:ozet_app/widgets/app_feedback.dart';
 
 class DailyScoreScreen extends StatefulWidget {
@@ -15,6 +18,8 @@ class DailyScoreScreen extends StatefulWidget {
 }
 
 class _DailyScoreScreenState extends State<DailyScoreScreen> {
+  static const int _defaultScore = 5;
+
   late final TextEditingController _noteController;
   late final Map<String, int> _scores;
 
@@ -41,6 +46,7 @@ class _DailyScoreScreenState extends State<DailyScoreScreen> {
   void initState() {
     super.initState();
     _scores = Map<String, int>.from(widget.initialEntry?.scores ?? {});
+    _scores.putIfAbsent(dailyScoreQuestions.first.id, () => _defaultScore);
     _noteController = TextEditingController(text: widget.initialEntry?.note);
   }
 
@@ -52,6 +58,7 @@ class _DailyScoreScreenState extends State<DailyScoreScreen> {
 
   void _selectScore(int score) {
     if (_scores[_question.id] == score) return;
+    HapticFeedback.selectionClick();
     setState(() => _scores[_question.id] = score);
   }
 
@@ -60,7 +67,16 @@ class _DailyScoreScreenState extends State<DailyScoreScreen> {
     FocusScope.of(context).unfocus();
     setState(() {
       _movingForward = true;
-      if (_step < dailyScoreQuestions.length) _step++;
+      if (_step < dailyScoreQuestions.length) {
+        _step++;
+        if (_step < dailyScoreQuestions.length) {
+          // Daha once cevaplanmamis her soru gorunur bir orta puanla baslar.
+          _scores.putIfAbsent(
+            dailyScoreQuestions[_step].id,
+            () => _defaultScore,
+          );
+        }
+      }
     });
   }
 
@@ -88,6 +104,34 @@ class _DailyScoreScreenState extends State<DailyScoreScreen> {
         date: DateTime.now(),
         scores: Map<String, int>.unmodifiable(_scores),
         note: _noteController.text.trim(),
+      ),
+    );
+  }
+
+  void _openStatistics() {
+    HapticFeedback.selectionClick();
+    Navigator.of(context).push(
+      PageRouteBuilder<void>(
+        transitionDuration: const Duration(milliseconds: 280),
+        reverseTransitionDuration: const Duration(milliseconds: 220),
+        pageBuilder: (_, _, _) => DailyScoreStatisticsScreen(),
+        transitionsBuilder: (_, animation, _, child) {
+          final curvedAnimation = CurvedAnimation(
+            parent: animation,
+            curve: Curves.easeOutCubic,
+            reverseCurve: Curves.easeInCubic,
+          );
+          return FadeTransition(
+            opacity: curvedAnimation,
+            child: SlideTransition(
+              position: Tween<Offset>(
+                begin: const Offset(0.035, 0),
+                end: Offset.zero,
+              ).animate(curvedAnimation),
+              child: child,
+            ),
+          );
+        },
       ),
     );
   }
@@ -140,6 +184,27 @@ class _DailyScoreScreenState extends State<DailyScoreScreen> {
           ),
         ),
         centerTitle: true,
+        actions: [
+          SizedBox(
+            width: 64,
+            child: Padding(
+              padding: const EdgeInsets.only(right: 14),
+              child: IconButton(
+                tooltip: 'İstatistikler',
+                onPressed: _openStatistics,
+                icon: const Icon(Icons.insights_rounded, size: 20),
+                color: palette.text,
+                style: IconButton.styleFrom(
+                  backgroundColor: palette.glassStrong,
+                  side: BorderSide(color: palette.border),
+                  fixedSize: const Size.square(40),
+                  shape: const CircleBorder(),
+                  overlayColor: palette.text.withValues(alpha: 0.08),
+                ),
+              ),
+            ),
+          ),
+        ],
         flexibleSpace: ClipRect(
           child: BackdropFilter(
             filter: ui.ImageFilter.blur(sigmaX: 16, sigmaY: 16),
@@ -179,12 +244,12 @@ class _DailyScoreScreenState extends State<DailyScoreScreen> {
                 child: content,
               ),
             ),
-            _buildActions(palette),
           ],
         ),
       ),
     );
   }
+
   Widget _buildProgress(_ScorePalette palette) {
     final totalSteps = dailyScoreQuestions.length + 1;
     final stageText = _isNoteStep
@@ -202,9 +267,7 @@ class _DailyScoreScreenState extends State<DailyScoreScreen> {
                 children: [
                   Expanded(
                     child: Text(
-                      _formatDate(
-                        widget.initialEntry?.date ?? DateTime.now(),
-                      ),
+                      _formatDate(widget.initialEntry?.date ?? DateTime.now()),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: GoogleFonts.inter(
@@ -267,6 +330,7 @@ class _DailyScoreScreenState extends State<DailyScoreScreen> {
       ),
     );
   }
+
   Widget _buildQuestionStep(_ScorePalette palette) {
     return LayoutBuilder(
       builder: (context, constraints) {
@@ -275,106 +339,106 @@ class _DailyScoreScreenState extends State<DailyScoreScreen> {
             .toDouble();
 
         return SingleChildScrollView(
-          padding: const EdgeInsets.fromLTRB(18, 6, 18, 18),
+          padding: EdgeInsets.fromLTRB(
+            18,
+            14,
+            18,
+            MediaQuery.paddingOf(context).bottom + 18,
+          ),
           child: ConstrainedBox(
             constraints: BoxConstraints(minHeight: minContentHeight),
-            child: Center(
+            child: Align(
+              alignment: Alignment.topCenter,
               child: ConstrainedBox(
                 constraints: const BoxConstraints(maxWidth: 560),
-                child: _GlassSurface(
-                  palette: palette,
-                  padding: const EdgeInsets.fromLTRB(20, 20, 20, 22),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    _GlassSurface(
+                      palette: palette,
+                      padding: const EdgeInsets.fromLTRB(20, 20, 20, 22),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 10,
-                              vertical: 6,
-                            ),
-                            decoration: BoxDecoration(
-                              color: palette.controlSurface,
-                              borderRadius: BorderRadius.circular(999),
-                              border: Border.all(color: palette.border),
-                            ),
-                            child: Text(
-                              _question.shortTitle,
-                              style: GoogleFonts.inter(
-                                color: palette.text,
-                                fontSize: 10.5,
-                                fontWeight: FontWeight.w600,
-                                letterSpacing: 0,
+                          Row(
+                            children: [
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 10,
+                                  vertical: 6,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: palette.controlSurface,
+                                  borderRadius: BorderRadius.circular(999),
+                                  border: Border.all(color: palette.border),
+                                ),
+                                child: Text(
+                                  _question.shortTitle,
+                                  style: GoogleFonts.inter(
+                                    color: palette.text,
+                                    fontSize: 10.5,
+                                    fontWeight: FontWeight.w600,
+                                    letterSpacing: 0,
+                                  ),
+                                ),
                               ),
+                              const Spacer(),
+                              Text(
+                                (_step + 1).toString().padLeft(2, '0'),
+                                style: GoogleFonts.inter(
+                                  color: palette.muted,
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w600,
+                                  letterSpacing: 0,
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 18),
+                          Text(
+                            _question.title,
+                            style: GoogleFonts.inter(
+                              color: palette.text,
+                              fontSize: 23,
+                              fontWeight: FontWeight.w700,
+                              height: 1.22,
+                              letterSpacing: 0,
                             ),
                           ),
-                          const Spacer(),
-                          Text(
-                            (_step + 1).toString().padLeft(2, '0'),
-                            style: GoogleFonts.inter(
-                              color: palette.muted,
-                              fontSize: 12,
-                              fontWeight: FontWeight.w600,
-                              letterSpacing: 0,
+                          const SizedBox(height: 22),
+                          Center(
+                            child: _ScoreReadout(
+                              score: _selectedScore,
+                              palette: palette,
+                            ),
+                          ),
+                          const SizedBox(height: 18),
+                          Container(
+                            width: double.infinity,
+                            padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
+                            decoration: BoxDecoration(
+                              color: palette.controlSurface,
+                              borderRadius: BorderRadius.circular(18),
+                              border: Border.all(color: palette.border),
+                            ),
+                            child: Column(
+                              children: [
+                                _DiscreteScoreSlider(
+                                  value: _selectedScore,
+                                  semanticLabel: _question.shortTitle,
+                                  palette: palette,
+                                  onChanged: _selectScore,
+                                ),
+                              ],
                             ),
                           ),
                         ],
                       ),
-                      const SizedBox(height: 18),
-                      Text(
-                        _question.title,
-                        style: GoogleFonts.inter(
-                          color: palette.text,
-                          fontSize: 23,
-                          fontWeight: FontWeight.w700,
-                          height: 1.22,
-                          letterSpacing: 0,
-                        ),
-                      ),
-                      const SizedBox(height: 28),
-                      Center(
-                        child: _ScoreReadout(
-                          score: _selectedScore,
-                          palette: palette,
-                        ),
-                      ),
-                      const SizedBox(height: 24),
-                      Container(
-                        width: double.infinity,
-                        padding: const EdgeInsets.fromLTRB(12, 12, 12, 9),
-                        decoration: BoxDecoration(
-                          color: palette.controlSurface,
-                          borderRadius: BorderRadius.circular(18),
-                          border: Border.all(color: palette.border),
-                        ),
-                        child: Column(
-                          children: [
-                            _DiscreteScoreSlider(
-                              value: _selectedScore,
-                              semanticLabel: _question.shortTitle,
-                              palette: palette,
-                              onChanged: _selectScore,
-                            ),
-                            Padding(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 8,
-                              ),
-                              child: Row(
-                                mainAxisAlignment:
-                                    MainAxisAlignment.spaceBetween,
-                                children: [
-                                  _scaleText('1', palette),
-                                  _scaleText('5', palette),
-                                  _scaleText('10', palette),
-                                ],
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
+                    ),
+                    const SizedBox(height: 12),
+                    _buildQuestionNavigation(palette),
+                  ],
                 ),
               ),
             ),
@@ -383,6 +447,81 @@ class _DailyScoreScreenState extends State<DailyScoreScreen> {
       },
     );
   }
+
+  Widget _buildQuestionNavigation(_ScorePalette palette) {
+    final canContinue = _selectedScore != null;
+
+    return SizedBox(
+      height: 44,
+      child: Stack(
+        children: [
+          if (_step > 0)
+            Align(
+              alignment: Alignment.centerLeft,
+              child: SizedBox.square(
+                dimension: 44,
+                child: IconButton(
+                  onPressed: _goBack,
+                  tooltip: 'Önceki soru',
+                  icon: const Icon(Icons.arrow_back_rounded, size: 19),
+                  color: palette.text,
+                  style: IconButton.styleFrom(
+                    backgroundColor: palette.glassStrong,
+                    side: BorderSide(color: palette.border),
+                    shape: const CircleBorder(),
+                  ),
+                ),
+              ),
+            ),
+          Align(
+            alignment: Alignment.centerRight,
+            child: SizedBox(
+              width: 112,
+              height: 44,
+              child: FilledButton(
+                onPressed: canContinue ? _goNext : null,
+                style: FilledButton.styleFrom(
+                  backgroundColor: palette.accent,
+                  foregroundColor: palette.onAccent,
+                  disabledBackgroundColor: palette.controlSurface,
+                  disabledForegroundColor: palette.muted,
+                  side: BorderSide(
+                    color: canContinue ? palette.accent : palette.border,
+                  ),
+                  overlayColor: palette.onAccent.withValues(alpha: 0.10),
+                  elevation: 0,
+                  padding: const EdgeInsets.symmetric(horizontal: 9),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                ),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Flexible(
+                      child: Text(
+                        'İleri',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: GoogleFonts.inter(
+                          fontSize: 13.5,
+                          fontWeight: FontWeight.w700,
+                          letterSpacing: 0,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 7),
+                    const Icon(Icons.arrow_forward_rounded, size: 18),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildNoteStep(_ScorePalette palette) {
     final scoreText = _average.toStringAsFixed(1).replaceAll('.', ',');
 
@@ -394,199 +533,214 @@ class _DailyScoreScreenState extends State<DailyScoreScreen> {
 
         return SingleChildScrollView(
           keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
-          padding: const EdgeInsets.fromLTRB(18, 6, 18, 18),
+          padding: EdgeInsets.fromLTRB(
+            18,
+            0,
+            18,
+            MediaQuery.paddingOf(context).bottom + 18,
+          ),
           child: ConstrainedBox(
             constraints: BoxConstraints(minHeight: minContentHeight),
-            child: Center(
+            child: Align(
+              alignment: Alignment.topCenter,
               child: ConstrainedBox(
                 constraints: const BoxConstraints(maxWidth: 560),
-                child: _GlassSurface(
-                  palette: palette,
-                  padding: const EdgeInsets.fromLTRB(20, 20, 20, 20),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'Son dokunuş',
-                        style: GoogleFonts.inter(
-                          color: palette.muted,
-                          fontSize: 11,
-                          fontWeight: FontWeight.w600,
-                          letterSpacing: 0,
-                        ),
-                      ),
-                      const SizedBox(height: 5),
-                      Text(
-                        'Bugünün sonucu',
-                        style: GoogleFonts.inter(
-                          color: palette.text,
-                          fontSize: 23,
-                          fontWeight: FontWeight.w700,
-                          height: 1.2,
-                          letterSpacing: 0,
-                        ),
-                      ),
-                      const SizedBox(height: 20),
-                      Row(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    _GlassSurface(
+                      palette: palette,
+                      padding: const EdgeInsets.fromLTRB(20, 20, 20, 20),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Container(
-                            width: 92,
-                            height: 92,
-                            alignment: Alignment.center,
-                            decoration: BoxDecoration(
-                              color: palette.controlSurface,
-                              shape: BoxShape.circle,
-                              border: Border.all(color: palette.border),
-                              boxShadow: [
-                                BoxShadow(
-                                  color: palette.shadow,
-                                  blurRadius: 18,
-                                  offset: const Offset(0, 7),
-                                ),
-                              ],
+                          Text(
+                            'Son dokunuş',
+                            style: GoogleFonts.inter(
+                              color: palette.muted,
+                              fontSize: 11,
+                              fontWeight: FontWeight.w600,
+                              letterSpacing: 0,
                             ),
-                            child: Column(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                Text(
-                                  scoreText,
-                                  style: GoogleFonts.inter(
-                                    color: palette.accent,
-                                    fontSize: 29,
-                                    fontWeight: FontWeight.w700,
-                                    height: 1,
-                                    letterSpacing: 0,
-                                  ),
+                          ),
+                          const SizedBox(height: 5),
+                          Text(
+                            'Bugünün sonucu',
+                            style: GoogleFonts.inter(
+                              color: palette.text,
+                              fontSize: 23,
+                              fontWeight: FontWeight.w700,
+                              height: 1.2,
+                              letterSpacing: 0,
+                            ),
+                          ),
+                          const SizedBox(height: 20),
+                          Row(
+                            children: [
+                              Container(
+                                width: 92,
+                                height: 92,
+                                alignment: Alignment.center,
+                                decoration: BoxDecoration(
+                                  color: palette.controlSurface,
+                                  shape: BoxShape.circle,
+                                  border: Border.all(color: palette.border),
+                                  boxShadow: [
+                                    BoxShadow(
+                                      color: palette.shadow,
+                                      blurRadius: 18,
+                                      offset: const Offset(0, 7),
+                                    ),
+                                  ],
                                 ),
-                                const SizedBox(height: 4),
-                                Text(
-                                  '/10',
+                                child: Column(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    Text(
+                                      scoreText,
+                                      style: GoogleFonts.inter(
+                                        color: palette.accent,
+                                        fontSize: 29,
+                                        fontWeight: FontWeight.w700,
+                                        height: 1,
+                                        letterSpacing: 0,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 4),
+                                    Text(
+                                      '/10',
+                                      style: GoogleFonts.inter(
+                                        color: palette.muted,
+                                        fontSize: 10.5,
+                                        fontWeight: FontWeight.w600,
+                                        letterSpacing: 0,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              const SizedBox(width: 16),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      _resultLabel,
+                                      style: GoogleFonts.inter(
+                                        color: palette.text,
+                                        fontSize: 17,
+                                        fontWeight: FontWeight.w700,
+                                        height: 1.2,
+                                        letterSpacing: 0,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 6),
+                                    Text(
+                                      _formatDate(
+                                        widget.initialEntry?.date ??
+                                            DateTime.now(),
+                                      ),
+                                      maxLines: 2,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: GoogleFonts.inter(
+                                        color: palette.muted,
+                                        fontSize: 11.5,
+                                        fontWeight: FontWeight.w400,
+                                        height: 1.35,
+                                        letterSpacing: 0,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 22),
+                          Divider(color: palette.border, height: 1),
+                          const SizedBox(height: 20),
+                          Row(
+                            children: [
+                              Expanded(
+                                child: Text(
+                                  'Bugünden kalan not',
                                   style: GoogleFonts.inter(
-                                    color: palette.muted,
-                                    fontSize: 10.5,
+                                    color: palette.text,
+                                    fontSize: 14,
                                     fontWeight: FontWeight.w600,
                                     letterSpacing: 0,
                                   ),
                                 ),
-                              ],
-                            ),
-                          ),
-                          const SizedBox(width: 16),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  _resultLabel,
-                                  style: GoogleFonts.inter(
-                                    color: palette.text,
-                                    fontSize: 17,
-                                    fontWeight: FontWeight.w700,
-                                    height: 1.2,
-                                    letterSpacing: 0,
-                                  ),
+                              ),
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 9,
+                                  vertical: 5,
                                 ),
-                                const SizedBox(height: 6),
-                                Text(
-                                  _formatDate(
-                                    widget.initialEntry?.date ?? DateTime.now(),
-                                  ),
-                                  maxLines: 2,
-                                  overflow: TextOverflow.ellipsis,
+                                decoration: BoxDecoration(
+                                  color: palette.controlSurface,
+                                  borderRadius: BorderRadius.circular(999),
+                                  border: Border.all(color: palette.border),
+                                ),
+                                child: Text(
+                                  'İsteğe bağlı',
                                   style: GoogleFonts.inter(
                                     color: palette.muted,
-                                    fontSize: 11.5,
-                                    fontWeight: FontWeight.w400,
-                                    height: 1.35,
+                                    fontSize: 9.5,
+                                    fontWeight: FontWeight.w600,
                                     letterSpacing: 0,
                                   ),
                                 ),
-                              ],
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 22),
-                      Divider(color: palette.border, height: 1),
-                      const SizedBox(height: 20),
-                      Row(
-                        children: [
-                          Expanded(
-                            child: Text(
-                              'Bugünden kalan not',
-                              style: GoogleFonts.inter(
-                                color: palette.text,
-                                fontSize: 14,
-                                fontWeight: FontWeight.w600,
-                                letterSpacing: 0,
                               ),
-                            ),
+                            ],
                           ),
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 9,
-                              vertical: 5,
+                          const SizedBox(height: 10),
+                          TextField(
+                            controller: _noteController,
+                            maxLength: 200,
+                            maxLines: 5,
+                            minLines: 4,
+                            textInputAction: TextInputAction.newline,
+                            cursorColor: palette.accent,
+                            style: GoogleFonts.inter(
+                              color: palette.text,
+                              fontSize: 13.5,
+                              fontWeight: FontWeight.w400,
+                              height: 1.45,
+                              letterSpacing: 0,
                             ),
-                            decoration: BoxDecoration(
-                              color: palette.controlSurface,
-                              borderRadius: BorderRadius.circular(999),
-                              border: Border.all(color: palette.border),
-                            ),
-                            child: Text(
-                              'İsteğe bağlı',
-                              style: GoogleFonts.inter(
+                            decoration: InputDecoration(
+                              hintText:
+                                  'Bugünden sende kalmasını istediğin şeyi yaz.',
+                              hintStyle: GoogleFonts.inter(
                                 color: palette.muted,
-                                fontSize: 9.5,
-                                fontWeight: FontWeight.w600,
+                                fontSize: 13,
+                                fontWeight: FontWeight.w400,
+                                height: 1.4,
                                 letterSpacing: 0,
+                              ),
+                              counterStyle: GoogleFonts.inter(
+                                color: palette.muted,
+                                fontSize: 10.5,
+                                fontWeight: FontWeight.w500,
+                                letterSpacing: 0,
+                              ),
+                              filled: true,
+                              fillColor: palette.controlSurface,
+                              contentPadding: const EdgeInsets.all(15),
+                              enabledBorder: _fieldBorder(palette.border),
+                              focusedBorder: _fieldBorder(
+                                palette.accent,
+                                width: 1.3,
                               ),
                             ),
                           ),
                         ],
                       ),
-                      const SizedBox(height: 10),
-                      TextField(
-                        controller: _noteController,
-                        maxLength: 200,
-                        maxLines: 5,
-                        minLines: 4,
-                        textInputAction: TextInputAction.newline,
-                        cursorColor: palette.accent,
-                        style: GoogleFonts.inter(
-                          color: palette.text,
-                          fontSize: 13.5,
-                          fontWeight: FontWeight.w400,
-                          height: 1.45,
-                          letterSpacing: 0,
-                        ),
-                        decoration: InputDecoration(
-                          hintText:
-                              'Bugünden sende kalmasını istediğin şeyi yaz.',
-                          hintStyle: GoogleFonts.inter(
-                            color: palette.muted,
-                            fontSize: 13,
-                            fontWeight: FontWeight.w400,
-                            height: 1.4,
-                            letterSpacing: 0,
-                          ),
-                          counterStyle: GoogleFonts.inter(
-                            color: palette.muted,
-                            fontSize: 10.5,
-                            fontWeight: FontWeight.w500,
-                            letterSpacing: 0,
-                          ),
-                          filled: true,
-                          fillColor: palette.controlSurface,
-                          contentPadding: const EdgeInsets.all(15),
-                          enabledBorder: _fieldBorder(palette.border),
-                          focusedBorder: _fieldBorder(
-                            palette.accent,
-                            width: 1.3,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
+                    ),
+                    const SizedBox(height: 12),
+                    _buildNoteNavigation(palette),
+                  ],
                 ),
               ),
             ),
@@ -595,121 +749,70 @@ class _DailyScoreScreenState extends State<DailyScoreScreen> {
       },
     );
   }
-  Widget _buildActions(_ScorePalette palette) {
-    final canContinue = _isNoteStep || _selectedScore != null;
-    final buttonText = _isNoteStep
-        ? widget.initialEntry == null
-              ? 'Gün kartını oluştur'
-              : 'Gün kartını güncelle'
-        : 'İleri';
 
-    final actionButton = SizedBox(
-      height: 46,
-      child: FilledButton(
-        onPressed: canContinue
-            ? () {
-                if (_isNoteStep) {
-                  _save();
-                } else {
-                  _goNext();
-                }
-              }
-            : null,
-        style: FilledButton.styleFrom(
-          backgroundColor: palette.accent,
-          foregroundColor: palette.onAccent,
-          disabledBackgroundColor: palette.controlSurface,
-          disabledForegroundColor: palette.muted,
-          side: BorderSide(
-            color: canContinue ? palette.accent : palette.border,
+  Widget _buildNoteNavigation(_ScorePalette palette) {
+    final buttonText = widget.initialEntry == null
+        ? 'Gün kartını oluştur'
+        : 'Gün kartını güncelle';
+
+    return SizedBox(
+      height: 44,
+      child: Row(
+        children: [
+          SizedBox.square(
+            dimension: 44,
+            child: IconButton(
+              onPressed: _goBack,
+              tooltip: 'Önceki soru',
+              icon: const Icon(Icons.arrow_back_rounded, size: 19),
+              color: palette.text,
+              style: IconButton.styleFrom(
+                backgroundColor: palette.glassStrong,
+                side: BorderSide(color: palette.border),
+                shape: const CircleBorder(),
+              ),
+            ),
           ),
-          overlayColor: palette.onAccent.withValues(alpha: 0.10),
-          elevation: 0,
-          padding: const EdgeInsets.symmetric(horizontal: 16),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(14),
-          ),
-        ),
-        child: AnimatedSwitcher(
-          duration: const Duration(milliseconds: 160),
-          child: Row(
-            key: ValueKey(buttonText),
-            mainAxisAlignment: MainAxisAlignment.center,
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(
-                buttonText,
-                style: GoogleFonts.inter(
-                  fontSize: 13.5,
-                  fontWeight: FontWeight.w700,
-                  letterSpacing: 0,
+          const SizedBox(width: 12),
+          Expanded(
+            child: SizedBox(
+              height: double.infinity,
+              child: FilledButton(
+                onPressed: _save,
+                style: FilledButton.styleFrom(
+                  backgroundColor: palette.accent,
+                  foregroundColor: palette.onAccent,
+                  side: BorderSide(color: palette.accent),
+                  overlayColor: palette.onAccent.withValues(alpha: 0.10),
+                  elevation: 0,
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(14),
+                  ),
                 ),
-              ),
-              const SizedBox(width: 7),
-              Icon(
-                _isNoteStep
-                    ? Icons.check_rounded
-                    : Icons.arrow_forward_rounded,
-                size: 18,
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-
-    return ClipRect(
-      child: BackdropFilter(
-        filter: ui.ImageFilter.blur(sigmaX: 18, sigmaY: 18),
-        child: DecoratedBox(
-          decoration: BoxDecoration(
-            color: palette.glass.withValues(alpha: 0.84),
-            border: Border(top: BorderSide(color: palette.border)),
-          ),
-          child: SafeArea(
-            top: false,
-            minimum: const EdgeInsets.fromLTRB(18, 10, 18, 12),
-            child: Center(
-              child: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 560),
                 child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    Visibility(
-                      visible: _step > 0,
-                      maintainAnimation: true,
-                      maintainSize: true,
-                      maintainState: true,
-                      child: SizedBox.square(
-                        dimension: 44,
-                        child: IconButton(
-                          onPressed: _goBack,
-                          tooltip: 'Önceki soru',
-                          icon: const Icon(
-                            Icons.arrow_back_rounded,
-                            size: 19,
-                          ),
-                          color: palette.text,
-                          style: IconButton.styleFrom(
-                            backgroundColor: palette.glassStrong,
-                            side: BorderSide(color: palette.border),
-                            shape: const CircleBorder(),
-                          ),
+                    Flexible(
+                      child: Text(
+                        buttonText,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: GoogleFonts.inter(
+                          fontSize: 13.5,
+                          fontWeight: FontWeight.w700,
+                          letterSpacing: 0,
                         ),
                       ),
                     ),
-                    const SizedBox(width: 12),
-                    if (_isNoteStep)
-                      Expanded(child: actionButton)
-                    else ...[
-                      const Spacer(),
-                      SizedBox(width: 128, child: actionButton),
-                    ],
+                    const SizedBox(width: 7),
+                    const Icon(Icons.check_rounded, size: 18),
                   ],
                 ),
               ),
             ),
           ),
-        ),
+        ],
       ),
     );
   }
@@ -720,18 +823,6 @@ class _DailyScoreScreenState extends State<DailyScoreScreen> {
       borderSide: BorderSide(color: color, width: width),
     );
   }
-
-  Widget _scaleText(String value, _ScorePalette palette) {
-    return Text(
-      value,
-      style: GoogleFonts.inter(
-        color: palette.muted,
-        fontSize: 10.5,
-        fontWeight: FontWeight.w600,
-        letterSpacing: 0,
-      ),
-    );
-  }
 }
 
 class _GlassSurface extends StatelessWidget {
@@ -739,20 +830,20 @@ class _GlassSurface extends StatelessWidget {
     required this.palette,
     required this.child,
     required this.padding,
-    this.radius = 24,
   });
+
+  static const _radius = 24.0;
 
   final _ScorePalette palette;
   final Widget child;
   final EdgeInsetsGeometry padding;
-  final double radius;
 
   @override
   Widget build(BuildContext context) {
     return DecoratedBox(
       decoration: BoxDecoration(
         color: Colors.transparent,
-        borderRadius: BorderRadius.circular(radius),
+        borderRadius: BorderRadius.circular(_radius),
         boxShadow: [
           BoxShadow(
             color: palette.shadow,
@@ -762,13 +853,13 @@ class _GlassSurface extends StatelessWidget {
         ],
       ),
       child: ClipRRect(
-        borderRadius: BorderRadius.circular(radius),
+        borderRadius: BorderRadius.circular(_radius),
         child: BackdropFilter(
           filter: ui.ImageFilter.blur(sigmaX: 18, sigmaY: 18),
           child: DecoratedBox(
             decoration: BoxDecoration(
               color: palette.glass,
-              borderRadius: BorderRadius.circular(radius),
+              borderRadius: BorderRadius.circular(_radius),
               border: Border.all(color: palette.border),
             ),
             child: Padding(padding: padding, child: child),
@@ -778,6 +869,7 @@ class _GlassSurface extends StatelessWidget {
     );
   }
 }
+
 class _ScoreReadout extends StatelessWidget {
   const _ScoreReadout({required this.score, required this.palette});
 
@@ -787,80 +879,106 @@ class _ScoreReadout extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final hasScore = score != null;
+    final ringProgress = hasScore ? score! / 10 : 0.0;
+    final description = hasScore ? _scoreDescription(score!) : 'Bir puan seç';
 
     return Column(
       children: [
         AnimatedContainer(
           duration: const Duration(milliseconds: 180),
           curve: Curves.easeOutCubic,
-          width: 126,
-          height: 126,
-          alignment: Alignment.center,
+          width: 120,
+          height: 120,
           decoration: BoxDecoration(
             color: palette.glassStrong,
             shape: BoxShape.circle,
-            border: Border.all(
-              color: hasScore
-                  ? palette.accent.withValues(alpha: 0.28)
-                  : palette.border,
-              width: 1.2,
-            ),
+            border: Border.all(color: palette.border),
             boxShadow: [
               BoxShadow(
                 color: palette.shadow,
-                blurRadius: hasScore ? 22 : 14,
-                offset: const Offset(0, 8),
+                blurRadius: hasScore ? 20 : 13,
+                offset: const Offset(0, 7),
               ),
             ],
           ),
-          child: AnimatedSwitcher(
-            duration: const Duration(milliseconds: 120),
-            transitionBuilder: (child, animation) => ScaleTransition(
-              scale: Tween(begin: 0.96, end: 1.0).animate(animation),
-              child: FadeTransition(opacity: animation, child: child),
-            ),
-            child: Row(
-              key: ValueKey(score),
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.end,
+          child: Padding(
+            padding: const EdgeInsets.all(7),
+            child: Stack(
+              alignment: Alignment.center,
               children: [
-                Text(
-                  score?.toString() ?? '–',
-                  style: GoogleFonts.inter(
-                    color: hasScore ? palette.accent : palette.muted,
-                    fontSize: 44,
-                    fontWeight: FontWeight.w700,
-                    height: 1,
-                    letterSpacing: 0,
+                Positioned.fill(
+                  child: TweenAnimationBuilder<double>(
+                    duration: const Duration(milliseconds: 220),
+                    curve: Curves.easeOutCubic,
+                    tween: Tween<double>(end: ringProgress),
+                    builder: (context, value, _) {
+                      return CircularProgressIndicator(
+                        value: value,
+                        strokeWidth: 4,
+                        strokeCap: StrokeCap.round,
+                        color: palette.accent,
+                        backgroundColor: palette.track,
+                      );
+                    },
                   ),
                 ),
-                Padding(
-                  padding: const EdgeInsets.only(bottom: 5, left: 3),
-                  child: Text(
-                    '/10',
-                    style: GoogleFonts.inter(
-                      color: palette.muted,
-                      fontSize: 11,
-                      fontWeight: FontWeight.w600,
-                      letterSpacing: 0,
-                    ),
+                AnimatedSwitcher(
+                  duration: const Duration(milliseconds: 120),
+                  transitionBuilder: (child, animation) => ScaleTransition(
+                    scale: Tween(begin: 0.95, end: 1.0).animate(animation),
+                    child: FadeTransition(opacity: animation, child: child),
+                  ),
+                  child: Column(
+                    key: ValueKey(score),
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        score?.toString() ?? '–',
+                        style: GoogleFonts.inter(
+                          color: hasScore ? palette.accent : palette.muted,
+                          fontSize: 40,
+                          fontWeight: FontWeight.w700,
+                          height: 0.95,
+                          letterSpacing: 0,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        '/10',
+                        style: GoogleFonts.inter(
+                          color: palette.muted,
+                          fontSize: 10,
+                          fontWeight: FontWeight.w600,
+                          height: 1,
+                          letterSpacing: 0,
+                        ),
+                      ),
+                    ],
                   ),
                 ),
               ],
             ),
           ),
         ),
-        const SizedBox(height: 11),
+        const SizedBox(height: 9),
         AnimatedSwitcher(
-          duration: const Duration(milliseconds: 120),
-          child: Text(
-            score == null ? 'Bir puan seç' : _scoreDescription(score!),
-            key: ValueKey('description-$score'),
-            style: GoogleFonts.inter(
-              color: score == null ? palette.muted : palette.text,
-              fontSize: 13,
-              fontWeight: FontWeight.w600,
-              letterSpacing: 0,
+          duration: const Duration(milliseconds: 140),
+          child: Container(
+            key: ValueKey(description),
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+            decoration: BoxDecoration(
+              color: palette.glassStrong,
+              borderRadius: BorderRadius.circular(999),
+              border: Border.all(color: palette.border),
+            ),
+            child: Text(
+              description,
+              style: GoogleFonts.inter(
+                color: hasScore ? palette.text : palette.muted,
+                fontSize: 11.5,
+                fontWeight: FontWeight.w600,
+                letterSpacing: 0,
+              ),
             ),
           ),
         ),
@@ -903,7 +1021,7 @@ class _DiscreteScoreSlider extends StatelessWidget {
           : null,
       child: LayoutBuilder(
         builder: (context, constraints) {
-          const thumbSize = 34.0;
+          const thumbSize = 32.0;
           final trackWidth = (constraints.maxWidth - thumbSize)
               .clamp(1.0, double.infinity)
               .toDouble();
@@ -927,14 +1045,14 @@ class _DiscreteScoreSlider extends StatelessWidget {
               onHorizontalDragUpdate: (details) =>
                   updateScore(details.localPosition.dx),
               child: SizedBox(
-                height: 50,
+                height: 62,
                 child: Stack(
                   clipBehavior: Clip.none,
                   children: [
                     Positioned(
                       left: thumbSize / 2,
                       right: thumbSize / 2,
-                      top: 22,
+                      top: 19,
                       height: 6,
                       child: DecoratedBox(
                         decoration: BoxDecoration(
@@ -946,7 +1064,7 @@ class _DiscreteScoreSlider extends StatelessWidget {
                     if (value != null)
                       Positioned(
                         left: thumbSize / 2,
-                        top: 22,
+                        top: 19,
                         width: trackWidth * progress,
                         height: 6,
                         child: DecoratedBox(
@@ -959,7 +1077,7 @@ class _DiscreteScoreSlider extends StatelessWidget {
                     Positioned(
                       left: thumbSize / 2 - 2,
                       right: thumbSize / 2 - 2,
-                      top: 23,
+                      top: 20,
                       child: Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: List.generate(10, (index) {
@@ -967,8 +1085,8 @@ class _DiscreteScoreSlider extends StatelessWidget {
                           return DecoratedBox(
                             decoration: BoxDecoration(
                               color: isReached
-                                  ? palette.onAccent.withValues(alpha: 0.46)
-                                  : palette.muted.withValues(alpha: 0.32),
+                                  ? palette.onAccent.withValues(alpha: 0.52)
+                                  : palette.muted.withValues(alpha: 0.36),
                               shape: BoxShape.circle,
                             ),
                             child: const SizedBox.square(dimension: 4),
@@ -978,8 +1096,9 @@ class _DiscreteScoreSlider extends StatelessWidget {
                     ),
                     if (value != null)
                       Positioned(
+                        key: const ValueKey('daily-score-thumb'),
                         left: trackWidth * progress,
-                        top: 8,
+                        top: 6,
                         child: Container(
                           width: thumbSize,
                           height: thumbSize,
@@ -988,7 +1107,7 @@ class _DiscreteScoreSlider extends StatelessWidget {
                             color: palette.accent,
                             shape: BoxShape.circle,
                             border: Border.all(
-                              color: palette.onAccent.withValues(alpha: 0.24),
+                              color: palette.onAccent.withValues(alpha: 0.26),
                             ),
                             boxShadow: [
                               BoxShadow(
@@ -1002,9 +1121,28 @@ class _DiscreteScoreSlider extends StatelessWidget {
                             '$value',
                             style: GoogleFonts.inter(
                               color: palette.onAccent,
-                              fontSize: 12,
+                              fontSize: 11.5,
                               fontWeight: FontWeight.w700,
                               height: 1,
+                              letterSpacing: 0,
+                            ),
+                          ),
+                        ),
+                      ),
+                    for (final scaleValue in const [1, 5, 10])
+                      Positioned(
+                        key: ValueKey('daily-score-scale-$scaleValue'),
+                        left: trackWidth * ((scaleValue - 1) / 9),
+                        top: 48,
+                        width: thumbSize,
+                        child: ExcludeSemantics(
+                          child: Text(
+                            '$scaleValue',
+                            textAlign: TextAlign.center,
+                            style: GoogleFonts.inter(
+                              color: palette.text,
+                              fontSize: 11,
+                              fontWeight: FontWeight.w600,
                               letterSpacing: 0,
                             ),
                           ),
@@ -1020,6 +1158,7 @@ class _DiscreteScoreSlider extends StatelessWidget {
     );
   }
 }
+
 class _ScorePalette {
   const _ScorePalette({
     required this.scaffold,
@@ -1051,14 +1190,14 @@ class _ScorePalette {
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
     return _ScorePalette(
-      scaffold: isDark ? const Color(0xFF0D0D0E) : const Color(0xFFF2F2F4),
-      text: isDark ? const Color(0xFFF5F5F7) : const Color(0xFF111114),
-      muted: isDark ? const Color(0xFFA1A1A6) : const Color(0xFF6E6E73),
+      scaffold: isDark ? AppThemePalette.darkScaffold : const Color(0xFFF2F2F4),
+      text: isDark ? AppThemePalette.darkText : const Color(0xFF111114),
+      muted: isDark ? AppThemePalette.darkMuted : const Color(0xFF6E6E73),
       glass: isDark
-          ? const Color(0xFF1C1C1E).withValues(alpha: 0.80)
+          ? AppThemePalette.darkSurface.withValues(alpha: 0.80)
           : Colors.white.withValues(alpha: 0.74),
       glassStrong: isDark
-          ? const Color(0xFF2C2C2E).withValues(alpha: 0.78)
+          ? AppThemePalette.darkSurfaceStrong.withValues(alpha: 0.78)
           : Colors.white.withValues(alpha: 0.86),
       controlSurface: isDark
           ? Colors.white.withValues(alpha: 0.065)
@@ -1069,12 +1208,13 @@ class _ScorePalette {
       track: isDark
           ? Colors.white.withValues(alpha: 0.13)
           : Colors.black.withValues(alpha: 0.09),
-      accent: isDark ? const Color(0xFFF5F5F7) : const Color(0xFF111114),
-      onAccent: isDark ? const Color(0xFF111114) : Colors.white,
+      accent: isDark ? AppThemePalette.darkText : const Color(0xFF111114),
+      onAccent: isDark ? AppThemePalette.darkOnAccent : Colors.white,
       shadow: Colors.black.withValues(alpha: isDark ? 0.30 : 0.10),
     );
   }
 }
+
 String _scoreDescription(int score) {
   if (score <= 2) return 'Oldukça düşük';
   if (score <= 4) return 'Düşük';

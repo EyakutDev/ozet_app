@@ -1,17 +1,23 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:cloud_functions/cloud_functions.dart';
+import 'package:ozet_app/models/partner_status_view.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:ozet_app/screens/settings_screen.dart';
 import 'package:ozet_app/widgets/app_feedback.dart';
-import 'package:http/http.dart' as http;
-import 'dart:convert';
+import 'package:ozet_app/widgets/home_panel_controls.dart';
 import 'dart:ui' show ImageFilter;
 
 class PartnerWidget extends StatefulWidget {
-  const PartnerWidget({super.key, required this.cardColor});
+  const PartnerWidget({
+    super.key,
+    required this.cardColor,
+    this.embedded = false,
+  });
 
   final Color cardColor;
+  final bool embedded;
 
   @override
   State<PartnerWidget> createState() => _PartnerWidgetState();
@@ -60,8 +66,12 @@ class _PartnerWidgetState extends State<PartnerWidget> {
 
           final userData = snapshot.data!.data() as Map<String, dynamic>?;
           final partnerId = userData?['pairedWith'] as String?;
-          final myIcon = userData?['statusIcon'] as String? ?? 'thinking';
-          final myText = userData?['statusText'] as String? ?? 'Durum Ayarla';
+          final myStatus = PartnerStatusView.fromData(
+            userData,
+            fallbackText: 'Durum ayarla',
+          );
+          final myIcon = myStatus.icon;
+          final myText = myStatus.text;
 
           return PageView(
             scrollDirection: Axis.horizontal,
@@ -108,6 +118,8 @@ class _PartnerWidgetState extends State<PartnerWidget> {
     required Color accentColor,
     required bool isDark,
   }) {
+    if (widget.embedded) return child;
+
     return AnimatedContainer(
       duration: const Duration(milliseconds: 260),
       curve: Curves.easeOutCubic,
@@ -141,47 +153,16 @@ class _PartnerWidgetState extends State<PartnerWidget> {
   }
 
   Widget _buildLoading() {
-    return const Center(
+    return Center(
       child: CircularProgressIndicator(
-        color: Color(0xFF9EC8ED),
+        color: _neutralAccent(context),
         strokeWidth: 2,
       ),
     );
   }
 
   Widget _buildMiniIcon(IconData icon, Color color) {
-    return Container(
-      width: 28,
-      height: 28,
-      alignment: Alignment.center,
-      decoration: BoxDecoration(
-        color: Colors.transparent,
-        shape: BoxShape.circle,
-        border: Border.all(color: color.withValues(alpha: 0.14)),
-      ),
-      child: Icon(icon, size: 15, color: color.withValues(alpha: 0.78)),
-    );
-  }
-
-  Widget _buildActionHint(String label, Color color) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
-      decoration: BoxDecoration(
-        color: Colors.transparent,
-        borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: color.withValues(alpha: 0.14)),
-      ),
-      child: Text(
-        label,
-        style: GoogleFonts.inter(
-          fontSize: 10.5,
-          color: color.withValues(alpha: 0.82),
-          fontWeight: FontWeight.w600,
-          letterSpacing: 0,
-          height: 1,
-        ),
-      ),
-    );
+    return HomePanelIcon(icon: icon, foregroundColor: color);
   }
 
   IconData? _statusIconData(String key) {
@@ -210,93 +191,47 @@ class _PartnerWidgetState extends State<PartnerWidget> {
     return Text(key, style: TextStyle(fontSize: size));
   }
 
-  Widget _buildStatusBubble(String icon, Color color, {double size = 44}) {
-    return Container(
-      width: size,
-      height: size,
-      alignment: Alignment.center,
-      decoration: BoxDecoration(
-        color: Colors.transparent,
-        shape: BoxShape.circle,
-        border: Border.all(color: color.withValues(alpha: 0.14)),
-      ),
-      child: _buildStatusMark(icon, color, size: size * 0.48),
-    );
-  }
-
-  Widget _buildTinyDots(int activeIndex, Color activeColor, Color mutedColor) {
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: List.generate(2, (index) {
-        final isActive = index == activeIndex;
-        return AnimatedContainer(
-          duration: const Duration(milliseconds: 180),
-          curve: Curves.easeOut,
-          margin: const EdgeInsets.only(left: 3),
-          width: isActive ? 13 : 5,
-          height: 5,
-          decoration: BoxDecoration(
-            color: isActive
-                ? activeColor.withValues(alpha: 0.82)
-                : Colors.transparent,
-            borderRadius: BorderRadius.circular(99),
-            border: Border.all(
-              color: isActive
-                  ? Colors.transparent
-                  : mutedColor.withValues(alpha: 0.2),
-            ),
-          ),
-        );
-      }),
-    );
-  }
-
   Widget _buildHeaderRow({
     required String title,
     required Color secondaryText,
     required Color accentColor,
     required IconData icon,
-    int? activeIndex,
     bool hasIndicator = false,
   }) {
     return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
-        Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(
-              title,
-              style: GoogleFonts.inter(
-                fontSize: 12.5,
-                fontWeight: FontWeight.w500,
-                color: accentColor.withValues(alpha: 0.84),
-                letterSpacing: 0,
-                height: 1,
-              ),
-            ),
-            if (hasIndicator) ...[
-              const SizedBox(width: 6),
-              Container(
-                width: 6,
-                height: 6,
-                decoration: BoxDecoration(
-                  color: accentColor.withValues(alpha: 0.9),
-                  shape: BoxShape.circle,
+        Expanded(
+          child: Row(
+            children: [
+              Flexible(
+                child: Text(
+                  title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: GoogleFonts.inter(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w500,
+                    color: secondaryText,
+                    letterSpacing: 0,
+                    height: 1,
+                  ),
                 ),
               ),
+              if (hasIndicator) ...[
+                const SizedBox(width: 6),
+                Container(
+                  width: 6,
+                  height: 6,
+                  decoration: BoxDecoration(
+                    color: accentColor.withValues(alpha: 0.9),
+                    shape: BoxShape.circle,
+                  ),
+                ),
+              ],
             ],
-          ],
+          ),
         ),
-        Row(
-          children: [
-            if (activeIndex != null) ...[
-              _buildTinyDots(activeIndex, accentColor, secondaryText),
-              const SizedBox(width: 7),
-            ],
-            _buildMiniIcon(icon, accentColor),
-          ],
-        ),
+        _buildMiniIcon(icon, accentColor),
       ],
     );
   }
@@ -308,7 +243,10 @@ class _PartnerWidgetState extends State<PartnerWidget> {
     Color secondaryText, {
     int? activeIndex = 0,
   }) {
+    final accentColor = _neutralAccent(context);
+
     return GestureDetector(
+      behavior: HitTestBehavior.opaque,
       onTap: () => Navigator.push(
         context,
         MaterialPageRoute(builder: (_) => const SettingsScreen()),
@@ -317,44 +255,35 @@ class _PartnerWidgetState extends State<PartnerWidget> {
         padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
             _buildHeaderRow(
               title: "Eşleşme",
               secondaryText: secondaryText,
-              accentColor: _neutralAccent(context),
-              icon: Icons.link,
-              activeIndex: activeIndex,
+              accentColor: accentColor,
+              icon: Icons.link_rounded,
             ),
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  "Partner yok",
-                  style: GoogleFonts.kadwa(
-                    fontSize: 18,
+            Expanded(
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  "Eşleşme yok",
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: GoogleFonts.inter(
+                    fontSize: 16,
                     height: 1.1,
-                    fontWeight: FontWeight.bold,
+                    fontWeight: FontWeight.w700,
                     color: primaryText,
+                    letterSpacing: 0,
                   ),
                 ),
-                const SizedBox(height: 3),
-                Text(
-                  "Durum paylaşmak için bağlan.",
-                  style: GoogleFonts.kadwa(
-                    fontSize: 11,
-                    color: secondaryText,
-                    height: 1.2,
-                  ),
-                ),
-              ],
+              ),
             ),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                _buildActionHint("Ayarlar", _neutralAccent(context)),
-                Icon(Icons.arrow_forward_ios, size: 12, color: secondaryText),
-              ],
+            HomePanelFooter(
+              activeIndex: activeIndex,
+              foregroundColor: accentColor,
+              mutedColor: secondaryText,
+              actionLabel: "Eşleştir",
             ),
           ],
         ),
@@ -378,8 +307,9 @@ class _PartnerWidgetState extends State<PartnerWidget> {
       builder: (context, snapshot) {
         if (!snapshot.hasData) return const SizedBox();
         final data = snapshot.data!.data() as Map<String, dynamic>?;
-        final icon = data?['statusIcon'] as String? ?? "👋";
-        final text = data?['statusText'] as String? ?? "Müsait";
+        final status = PartnerStatusView.fromData(data);
+        final icon = status.icon;
+        final text = status.text;
         final noteText = (data?['partnerNote'] as String?)?.trim();
         final sketchStrokes = _readSketchStrokes(data?['partnerSketch']);
         final hasNote = noteText != null && noteText.isNotEmpty;
@@ -405,7 +335,6 @@ class _PartnerWidgetState extends State<PartnerWidget> {
                   secondaryText: secondaryText,
                   accentColor: accentColor,
                   icon: Icons.person_outline_rounded,
-                  activeIndex: 0,
                   hasIndicator: hasNote,
                 ),
                 const SizedBox(height: 7),
@@ -441,39 +370,39 @@ class _PartnerWidgetState extends State<PartnerWidget> {
                   ),
                 ),
                 const SizedBox(height: 7),
-                Row(
-                  children: [
-                    SizedBox.square(
-                      dimension: 24,
-                      child: Center(
-                        child: _buildStatusMark(
-                          icon,
-                          accentColor.withValues(alpha: 0.82),
-                          size: 16,
+                HomePanelFooter(
+                  activeIndex: 0,
+                  foregroundColor: accentColor,
+                  mutedColor: secondaryText,
+                  leading: Row(
+                    children: [
+                      SizedBox.square(
+                        dimension: 18,
+                        child: Center(
+                          child: _buildStatusMark(
+                            icon,
+                            accentColor.withValues(alpha: 0.82),
+                            size: 15,
+                          ),
                         ),
                       ),
-                    ),
-                    const SizedBox(width: 6),
-                    Expanded(
-                      child: Text(
-                        text,
-                        style: GoogleFonts.inter(
-                          fontSize: 12.5,
-                          height: 1.1,
-                          fontWeight: FontWeight.w600,
-                          color: primaryText,
-                          letterSpacing: 0,
+                      const SizedBox(width: 5),
+                      Expanded(
+                        child: Text(
+                          text,
+                          style: GoogleFonts.inter(
+                            fontSize: 11,
+                            height: 1.1,
+                            fontWeight: FontWeight.w600,
+                            color: primaryText,
+                            letterSpacing: 0,
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
                         ),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
                       ),
-                    ),
-                    Icon(
-                      Icons.chevron_right_rounded,
-                      size: 17,
-                      color: secondaryText.withValues(alpha: 0.72),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
               ],
             ),
@@ -817,46 +746,58 @@ class _PartnerWidgetState extends State<PartnerWidget> {
     Color primaryText,
     Color secondaryText,
   ) {
+    final accentColor = _neutralAccent(context);
+
     return GestureDetector(
-      onTap: () => _showStatusPicker(context, myUid), // Tıklayınca menü açılır
+      behavior: HitTestBehavior.opaque,
+      onTap: () => _showStatusPicker(context, myUid),
       child: Container(
         padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
             _buildHeaderRow(
               title: "Durumum",
               secondaryText: secondaryText,
-              accentColor: _neutralAccent(context),
+              accentColor: accentColor,
               icon: Icons.face_outlined,
-              activeIndex: 1,
             ),
-            Row(
-              children: [
-                _buildStatusBubble(myIcon, _neutralAccent(context)),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Text(
-                    myText,
-                    style: GoogleFonts.kadwa(
-                      fontSize: 16,
-                      height: 1.15,
-                      fontWeight: FontWeight.bold,
-                      color: primaryText,
+            Expanded(
+              child: Row(
+                children: [
+                  SizedBox.square(
+                    dimension: 25,
+                    child: Center(
+                      child: _buildStatusMark(
+                        myIcon,
+                        accentColor.withValues(alpha: 0.82),
+                        size: 19,
+                      ),
                     ),
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
                   ),
-                ),
-              ],
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      myText,
+                      style: GoogleFonts.inter(
+                        fontSize: 14,
+                        height: 1.1,
+                        fontWeight: FontWeight.w700,
+                        color: primaryText,
+                        letterSpacing: 0,
+                      ),
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                ],
+              ),
             ),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                _buildActionHint("Güncelle", _neutralAccent(context)),
-                Icon(Icons.touch_app_outlined, size: 15, color: secondaryText),
-              ],
+            HomePanelFooter(
+              activeIndex: 1,
+              foregroundColor: accentColor,
+              mutedColor: secondaryText,
+              actionLabel: "Güncelle",
             ),
           ],
         ),
@@ -937,7 +878,7 @@ class _PartnerWidgetState extends State<PartnerWidget> {
       final nav = Navigator.of(sheetContext);
       try {
         await _updateStatus(myUid, "custom", text);
-        _notifyPartner(myUid, "custom", text);
+        _notifyPartner("custom", text);
         if (sheetContext.mounted) nav.pop();
         if (parentContext.mounted) {
           AppFeedback.show(
@@ -1896,7 +1837,7 @@ class _PartnerWidgetState extends State<PartnerWidget> {
                 final nav = Navigator.of(context);
                 try {
                   await _updateStatus(myUid, icon, text);
-                  _notifyPartner(myUid, icon, text);
+                  _notifyPartner(icon, text);
                   if (context.mounted) nav.pop();
                   if (feedbackContext.mounted) {
                     AppFeedback.show(
@@ -1965,19 +1906,23 @@ class _PartnerWidgetState extends State<PartnerWidget> {
   }
 
   Future<void> _updateStatus(String myUid, String icon, String text) async {
+    final now = DateTime.now();
     await _savePartnerShare(
       myUid,
       latestFields: {
         'statusIcon': icon,
         'statusText': text,
         'lastUpdated': FieldValue.serverTimestamp(),
+        'statusExpiresAt': Timestamp.fromDate(
+          PartnerStatusView.expiresAtFrom(now),
+        ),
       },
       share: {
         'id': _newShareId(),
         'type': 'status',
         'icon': icon,
         'text': text,
-        'createdAt': DateTime.now().toIso8601String(),
+        'createdAt': now.toIso8601String(),
       },
     );
   }
@@ -1997,7 +1942,7 @@ class _PartnerWidgetState extends State<PartnerWidget> {
       },
     );
 
-    _notifyPartner(myUid, "note", note);
+    _notifyPartner("note", note);
   }
 
   Future<void> _deletePartnerNote(String myUid) async {
@@ -2169,7 +2114,7 @@ class _PartnerWidgetState extends State<PartnerWidget> {
       },
     );
 
-    _notifyPartner(myUid, "sketch", "Sana bir çizim gönderdi.");
+    _notifyPartner("sketch", "Sana bir çizim gönderdi.");
   }
 
   Future<void> _deletePartnerSketch(String myUid) async {
@@ -2178,50 +2123,17 @@ class _PartnerWidgetState extends State<PartnerWidget> {
     });
   }
 
-  // === PARTNERE BİLDİRİM GÖNDEREN FONKSİYON ===
-  Future<void> _notifyPartner(String myUid, String icon, String text) async {
+  // Partner bildirimi yalnızca kimliği doğrulanmış callable Function üzerinden gider.
+  Future<void> _notifyPartner(String kind, String text) async {
     try {
-      // 1. Eşimin ID'sini bul
-      DocumentSnapshot myDoc = await FirebaseFirestore.instance
-          .collection('users')
-          .doc(myUid)
-          .get();
-
-      String? partnerId = myDoc.get('pairedWith');
-      if (partnerId == null) return;
-
-      // 2. Eşimin Cihaz Token'ını bul
-      DocumentSnapshot partnerDoc = await FirebaseFirestore.instance
-          .collection('users')
-          .doc(partnerId)
-          .get();
-
-      var partnerData = partnerDoc.data() as Map<String, dynamic>?;
-      String? token = partnerData?['fcmToken'];
-
-      if (token == null) return;
-
-      // 3. Bildirimi Ateşle
-      String serverKey =
-          'AIzaSyBcA32H_ytMwdX1qCfxN5eIBw7v86KKkiY'; // FCM Server Key
-
-      await http.post(
-        Uri.parse('https://fcm.googleapis.com/fcm/send'),
-        headers: <String, String>{
-          'Content-Type': 'application/json',
-          'Authorization': 'key=$serverKey',
-        },
-        body: jsonEncode(<String, dynamic>{
-          'notification': <String, dynamic>{
-            'title': 'Partnerinden durum',
-            'body': text,
-            'sound': 'default',
-          },
-          'to': token,
-        }),
-      );
-    } catch (e) {
-      print("Bildirim hatası: $e");
+      final normalizedKind = kind == 'note' || kind == 'sketch'
+          ? kind
+          : 'status';
+      await FirebaseFunctions.instanceFor(region: 'europe-west1')
+          .httpsCallable('notifyPartner')
+          .call(<String, dynamic>{'kind': normalizedKind, 'text': text});
+    } catch (_) {
+      // Bildirim hatası partner paylaşımının kaydedilmesini engellemez.
     }
   }
 }

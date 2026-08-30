@@ -660,7 +660,7 @@ class _HistoryPalette {
       field: isDark ? const Color(0xFF262626) : const Color(0xFFF5F7F9),
       border: isDark ? const Color(0xFF343434) : const Color(0xFFE5EAF0),
       track: isDark ? const Color(0xFF303030) : const Color(0xFFEDF1F4),
-      accent: isDark ? const Color(0xFF9EC8ED) : const Color(0xFF0A7280),
+      accent: isDark ? const Color(0xFFF5F5F7) : const Color(0xFF111114),
       shadow: Colors.black.withValues(alpha: isDark ? 0.16 : 0.05),
     );
   }

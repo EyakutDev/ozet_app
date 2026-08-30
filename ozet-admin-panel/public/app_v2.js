@@ -309,36 +309,27 @@ window.addEventListener('load', () => {
             const body = cleanText(notifBodyInput.value);
 
             if (!title || !body) {
-                alert('Başlık ve mesaj boş olamaz!');
+                alert('Baslik ve mesaj bos olamaz!');
                 return;
             }
-            if (!confirm('Tüm kullanıcılara bildirim gidecek. Emin misin?')) return;
+            if (!confirm('Tum kullanicilara bildirim gidecek. Emin misin?')) return;
 
-            const serverKey = "AIzaSyBcA32H_ytMwdX1qCfxN5eIBw7v86KKkiY";
+            const oldText = sendNotifBtn.textContent;
+            sendNotifBtn.disabled = true;
+            sendNotifBtn.textContent = 'Gonderiliyor...';
 
             try {
-                const response = await fetch('https://fcm.googleapis.com/fcm/send', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json', 'Authorization': 'key=' + serverKey },
-                    body: JSON.stringify({
-                        to: '/topics/all',
-                        notification: { title, body, sound: 'default' }
-                    })
-                });
-
-                if (!response.ok) {
-                    const errorData = await response.json();
-                    alert('Hata: ' + JSON.stringify(errorData));
-                    return;
-                }
-
-                showTemporaryMessage(notifSuccess, 'Bildirim gönderildi!');
+                const sendAdminBroadcast = functions.httpsCallable('sendAdminBroadcast');
+                await sendAdminBroadcast({ title, body });
+                showTemporaryMessage(notifSuccess, 'Bildirim gonderildi!');
             } catch (e) {
-                alert('Gönderim hatası: ' + e.message);
+                alert('Gonderim hatasi: ' + e.message);
+            } finally {
+                sendNotifBtn.disabled = false;
+                sendNotifBtn.textContent = oldText;
             }
         });
     }
-
     if (addDraftBtn) {
         addDraftBtn.addEventListener('click', async () => {
             const title = cleanText(titleInput.value);

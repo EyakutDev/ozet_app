@@ -32,6 +32,322 @@ exports.importRssScheduled = onSchedule(
   async () => importActiveRssSources(),
 );
 
+const PAIR_CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+
+exports.createPairCode = onCall(
+  { region: REGION, invoker: 'public' },
+  async (request) => {
+    const uid = requireAuthenticatedUid(request);
+    const userRef = db.collection('users').doc(uid);
+
+    for (let attempt = 0; attempt < 8; attempt += 1) {
+      const code = randomPairCode();
+      const codeRef = db.collection('pair_codes').doc(code);
+      const reserved = await db.runTransaction(async (transaction) => {
+        const [userDoc, codeDoc] = await Promise.all([
+          transaction.get(userRef),
+          transaction.get(codeRef),
+        ]);
+        if (codeDoc.exists) return false;
+
+        const userData = userDoc.data() || {};
+        if (cleanText(userData.pairedWith)) {
+          throw new HttpsError('failed-precondition', 'Zaten bir eslesmen var.');
+        }
+
+        const oldCode = cleanText(userData.pairCode);
+        if (oldCode && oldCode !== code) {
+          transaction.delete(db.collection('pair_codes').doc(oldCode));
+        }
+        transaction.set(userRef, { pairCode: code }, { merge: true });
+        transaction.set(codeRef, {
+          uid,
+          createdAt: admin.firestore.FieldValue.serverTimestamp(),
+        });
+        return true;
+      });
+
+      if (reserved) return { code };
+    }
+
+    throw new HttpsError('resource-exhausted', 'Yeni eslesme kodu olusturulamadi.');
+  },
+);
+
+exports.pairWithCode = onCall(
+  { region: REGION, invoker: 'public' },
+  async (request) => {
+    const uid = requireAuthenticatedUid(request);
+    const code = cleanText(request.data && request.data.code).toUpperCase();
+    if (!/^[A-Z0-9]{6}$/.test(code)) {
+      throw new HttpsError('invalid-argument', 'Gecerli bir eslesme kodu gir.');
+    }
+
+    const codeRef = db.collection('pair_codes').doc(code);
+    const codeDoc = await codeRef.get();
+    let partnerUid = codeDoc.exists ? cleanText(codeDoc.data().uid) : '';
+    if (!partnerUid) {
+      const legacyMatch = await db
+        .collection('users')
+        .where('pairCode', '==', code)
+        .limit(1)
+        .get();
+      partnerUid = legacyMatch.empty ? '' : legacyMatch.docs[0].id;
+    }
+    if (!partnerUid) {
+      throw new HttpsError('not-found', 'Eslesme kodu bulunamadi.');
+    }
+    if (partnerUid === uid) {
+      throw new HttpsError('failed-precondition', 'Kendinle eslesemezsin.');
+    }
+
+    const userRef = db.collection('users').doc(uid);
+    const partnerRef = db.collection('users').doc(partnerUid);
+    await db.runTransaction(async (transaction) => {
+      const [userDoc, partnerDoc, latestCodeDoc] = await Promise.all([
+        transaction.get(userRef),
+        transaction.get(partnerRef),
+        transaction.get(codeRef),
+      ]);
+      if (!partnerDoc.exists) {
+        throw new HttpsError('not-found', 'Partner hesabi bulunamadi.');
+      }
+
+      const userData = userDoc.data() || {};
+      const partnerData = partnerDoc.data() || {};
+      const currentCodeOwner = latestCodeDoc.exists
+        ? cleanText(latestCodeDoc.data().uid)
+        : cleanText(partnerData.pairCode) === code
+          ? partnerUid
+          : '';
+      if (currentCodeOwner !== partnerUid) {
+        throw new HttpsError('not-found', 'Eslesme kodunun suresi dolmus.');
+      }
+      if (cleanText(userData.pairedWith) || cleanText(partnerData.pairedWith)) {
+        throw new HttpsError('failed-precondition', 'Kullanicilardan biri zaten eslesmis.');
+      }
+
+      const callerCode = cleanText(userData.pairCode);
+      transaction.set(
+        userRef,
+        {
+          pairedWith: partnerUid,
+          pairCode: admin.firestore.FieldValue.delete(),
+        },
+        { merge: true },
+      );
+      transaction.set(
+        partnerRef,
+        {
+          pairedWith: uid,
+          pairCode: admin.firestore.FieldValue.delete(),
+        },
+        { merge: true },
+      );
+      transaction.delete(codeRef);
+      if (callerCode) {
+        transaction.delete(db.collection('pair_codes').doc(callerCode));
+      }
+    });
+
+    return { partnerUid };
+  },
+);
+
+exports.endPairing = onCall(
+  { region: REGION, invoker: 'public' },
+  async (request) => {
+    const uid = requireAuthenticatedUid(request);
+    const userRef = db.collection('users').doc(uid);
+
+    await db.runTransaction(async (transaction) => {
+      const userDoc = await transaction.get(userRef);
+      const userData = userDoc.data() || {};
+      const partnerUid = cleanText(userData.pairedWith);
+      const callerCode = cleanText(userData.pairCode);
+      let partnerRef = null;
+      let partnerDoc = null;
+
+      if (partnerUid) {
+        partnerRef = db.collection('users').doc(partnerUid);
+        partnerDoc = await transaction.get(partnerRef);
+      }
+
+      transaction.set(
+        userRef,
+        {
+          pairedWith: admin.firestore.FieldValue.delete(),
+          partnerNickname: admin.firestore.FieldValue.delete(),
+          pairCode: admin.firestore.FieldValue.delete(),
+        },
+        { merge: true },
+      );
+      if (callerCode) {
+        transaction.delete(db.collection('pair_codes').doc(callerCode));
+      }
+
+      const partnerData = partnerDoc && partnerDoc.exists ? partnerDoc.data() || {} : {};
+      if (partnerRef && cleanText(partnerData.pairedWith) === uid) {
+        const partnerCode = cleanText(partnerData.pairCode);
+        transaction.set(
+          partnerRef,
+          {
+            pairedWith: admin.firestore.FieldValue.delete(),
+            partnerNickname: admin.firestore.FieldValue.delete(),
+            pairCode: admin.firestore.FieldValue.delete(),
+          },
+          { merge: true },
+        );
+        if (partnerCode) {
+          transaction.delete(db.collection('pair_codes').doc(partnerCode));
+        }
+      }
+    });
+
+    return { unpaired: true };
+  },
+);
+
+exports.notifyPartner = onCall(
+  { region: REGION, invoker: 'public' },
+  async (request) => {
+    const uid = requireAuthenticatedUid(request);
+    const kind = cleanText(request.data && request.data.kind);
+    const text = summarize(cleanText(request.data && request.data.text), 120);
+    if (!['status', 'note', 'sketch'].includes(kind)) {
+      throw new HttpsError('invalid-argument', 'Bildirim turu gecersiz.');
+    }
+
+    const senderDoc = await db.collection('users').doc(uid).get();
+    const sender = senderDoc.data() || {};
+    const partnerUid = cleanText(sender.pairedWith);
+    if (!partnerUid) return { sent: false, reason: 'not-paired' };
+
+    const [partnerDoc, privateDoc] = await Promise.all([
+      db.collection('users').doc(partnerUid).get(),
+      db.collection('user_private').doc(partnerUid).get(),
+    ]);
+    const partner = partnerDoc.data() || {};
+    if (cleanText(partner.pairedWith) !== uid) {
+      throw new HttpsError('permission-denied', 'Karsilikli eslesme bulunamadi.');
+    }
+
+    const privateData = privateDoc.data() || {};
+    const preferences = privateData.notificationPreferences || {};
+    if (preferences.partnerUpdates === false) {
+      return { sent: false, reason: 'disabled' };
+    }
+
+    const token = cleanText(privateData.fcmToken);
+    if (!token) return { sent: false, reason: 'missing-token' };
+
+    const senderName = summarize(cleanText(sender.displayName, 'Partnerin'), 40);
+    const body = kind === 'note'
+      ? 'Sana kisa bir not birakti.'
+      : kind === 'sketch'
+        ? 'Sana bir cizim gonderdi.'
+        : text || 'Durumunu guncelledi.';
+
+    try {
+      await admin.messaging().send({
+        token,
+        notification: {
+          title: senderName,
+          body,
+        },
+        data: {
+          type: 'partner_update',
+          senderUid: uid,
+          kind,
+        },
+        android: {
+          notification: { sound: 'default' },
+        },
+        apns: {
+          payload: { aps: { sound: 'default' } },
+        },
+      });
+      return { sent: true };
+    } catch (error) {
+      const code = cleanText(error && error.code);
+      if (
+        code === 'messaging/registration-token-not-registered' ||
+        code === 'messaging/invalid-registration-token'
+      ) {
+        await db.collection('user_private').doc(partnerUid).set(
+          { fcmToken: admin.firestore.FieldValue.delete() },
+          { merge: true },
+        );
+      }
+      throw new HttpsError('internal', 'Partner bildirimi gonderilemedi.');
+    }
+  },
+);
+
+exports.sendAdminBroadcast = onCall(
+  { region: REGION, invoker: 'public' },
+  async (request) => {
+    requireAuthenticatedUid(request);
+    await assertAdmin(request.auth);
+
+    const title = summarize(cleanText(request.data && request.data.title), 80);
+    const body = summarize(cleanText(request.data && request.data.body), 180);
+    if (!title || !body) {
+      throw new HttpsError('invalid-argument', 'Bildirim basligi ve mesaji gerekli.');
+    }
+
+    const messageId = await admin.messaging().send({
+      topic: 'all',
+      notification: { title, body },
+    });
+    return { sent: true, messageId };
+  },
+);
+
+exports.sendMorningDigest = onSchedule(
+  {
+    region: REGION,
+    schedule: '0 9 * * *',
+    timeZone: 'Europe/Istanbul',
+  },
+  async () => admin.messaging().send({
+    topic: 'daily_digest',
+    notification: {
+      title: 'Bugun ne oldu?',
+      body: 'Gunun kisa gundem ozeti hazir.',
+    },
+    data: { type: 'daily_digest' },
+  }),
+);
+
+exports.sendEveningCheckIn = onSchedule(
+  {
+    region: REGION,
+    schedule: '0 20 * * *',
+    timeZone: 'Europe/Istanbul',
+  },
+  async () => admin.messaging().send({
+    topic: 'evening_checkin',
+    notification: {
+      title: 'Gununu degerlendir',
+      body: 'Bugunden geriye kucuk bir not birak.',
+    },
+    data: { type: 'evening_checkin' },
+  }),
+);
+
+function requireAuthenticatedUid(request) {
+  const uid = cleanText(request && request.auth && request.auth.uid);
+  if (!uid) {
+    throw new HttpsError('unauthenticated', 'Oturum acman gerekiyor.');
+  }
+  return uid;
+}
+
+function randomPairCode() {
+  const bytes = crypto.randomBytes(6);
+  return Array.from(bytes, (value) => PAIR_CODE_ALPHABET[value % PAIR_CODE_ALPHABET.length]).join('');
+}
 exports.summarizeNewsWithAi = onCall(
   { region: REGION, timeoutSeconds: 180, invoker: 'public', secrets: [GEMINI_API_KEY] },
   async (request) => {

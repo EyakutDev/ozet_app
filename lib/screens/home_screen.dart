@@ -1,4 +1,7 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart'; // <-- YENİ: Kullanıcıyı bulmak için
@@ -9,9 +12,14 @@ import 'package:ozet_app/screens/daily_score_screen.dart';
 import 'package:ozet_app/screens/daily_score_history_screen.dart';
 import 'package:ozet_app/screens/settings_screen.dart';
 import 'package:ozet_app/services/daily_score_storage.dart';
+import 'package:ozet_app/services/news_read_storage.dart';
+import 'package:ozet_app/services/news_feed_service.dart';
+import 'package:ozet_app/widgets/paginated_news_feed.dart';
+import 'package:ozet_app/theme/app_theme_palette.dart';
 import 'package:ozet_app/widgets/partner_widget.dart';
 import 'package:ozet_app/widgets/app_feedback.dart';
 import 'package:ozet_app/widgets/daily_cards_widget.dart';
+import 'package:ozet_app/widgets/liquid_glass_app_bar.dart';
 import 'package:ozet_app/screens/news_webview_screen.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -21,18 +29,18 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
-  // Haberleri çektiğimiz veri akışı (Canlı dinler)
-  final Stream<QuerySnapshot> _newsStream = FirebaseFirestore.instance
-      .collection('news')
-      .orderBy('createdAt', descending: true)
-      .snapshots();
+  // Haberler cursor tabanli sayfalar halinde yuklenir.
+  final NewsFeedService _newsFeedService = NewsFeedService();
+  StreamSubscription<String>? _tokenRefreshSubscription;
 
   // Sayfanın kaydırılmasını kontrol eden mekanizma
   final ScrollController _scrollController = ScrollController();
   final DailyScoreStorage _dailyScoreStorage = DailyScoreStorage();
+  final NewsReadStorage _newsReadStorage = NewsReadStorage();
 
   DailyScoreEntry? _todayScore;
   bool _isDailyScoreLoading = true;
+  Set<String> _readNewsIds = <String>{};
 
   // Sayfa aşağı kaydırıldı mı? (Blur efekti için kullanılır)
   bool _isScrolled = false;
@@ -42,11 +50,14 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _loadTodayScore();
+    _loadReadNewsIds();
 
     // === 1. BİLDİRİM TOKEN'INI KAYDET ===
     // Uygulama açılınca bu cihazın kimliğini veritabanına yazarız.
     // Böylece partnerin sana bildirim atabilir.
     _saveDeviceToken();
+    _tokenRefreshSubscription = FirebaseMessaging.instance.onTokenRefresh
+        .listen(_storeDeviceToken);
 
     // === 2. SCROLL DİNLEYİCİSİ ===
     // Sayfa kaydırıldıkça AppBar'ın bulanıklaşmasını sağlar
@@ -74,6 +85,33 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       _todayScore = entry;
       _isDailyScoreLoading = false;
     });
+  }
+
+  Future<void> _loadReadNewsIds() async {
+    try {
+      final storedIds = await _newsReadStorage.getReadIds();
+      if (!mounted) return;
+
+      // Yukleme surerken acilan bir haber varsa onun durumunu kaybetmeyiz.
+      setState(() => _readNewsIds = {...storedIds, ..._readNewsIds});
+    } on Object {
+      // Yerel okundu verisi haber akisinin acilmasini engellememeli.
+    }
+  }
+
+  void _markNewsAsRead(String newsId) {
+    if (_readNewsIds.contains(newsId)) return;
+
+    setState(() => _readNewsIds = {..._readNewsIds, newsId});
+    unawaited(_persistReadNews(newsId));
+  }
+
+  Future<void> _persistReadNews(String newsId) async {
+    try {
+      await _newsReadStorage.markRead(newsId);
+    } on Object {
+      // Oturumdaki gorsel durum korunur; kalici yazma sonraki okumada yenilenir.
+    }
   }
 
   Future<void> _openDailyScore() async {
@@ -109,20 +147,33 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     ).push(MaterialPageRoute(builder: (_) => DailyScoreHistoryScreen()));
   }
 
-  // === CİHAZ TOKEN KAYDETME FONKSİYONU ===
+  void _openSettings() {
+    Navigator.of(
+      context,
+    ).push(MaterialPageRoute(builder: (_) => const SettingsScreen()));
+  }
+
   Future<void> _saveDeviceToken() async {
-    // 1. Bu cihazın özel bildirim adresini (Token) al
-    String? token = await FirebaseMessaging.instance.getToken();
-
-    // 2. Şu anki kullanıcıyı bul
-    User? user = FirebaseAuth.instance.currentUser;
-
-    // 3. Eğer ikisi de varsa veritabanına kaydet
-    if (token != null && user != null) {
-      await FirebaseFirestore.instance.collection('users').doc(user.uid).set({
-        'fcmToken': token, // <-- Adres buraya yazılıyor
-      }, SetOptions(merge: true)); // Mevcut verileri silmeden sadece bunu ekler
+    try {
+      final token = await FirebaseMessaging.instance.getToken();
+      if (token != null) {
+        await _storeDeviceToken(token);
+      }
+    } catch (_) {
+      // Token sonraki uygulama açılışında veya yenilendiğinde tekrar kaydedilir.
     }
+  }
+
+  Future<void> _storeDeviceToken(String token) async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+    await FirebaseFirestore.instance
+        .collection('user_private')
+        .doc(user.uid)
+        .set({
+          'fcmToken': token,
+          'tokenUpdatedAt': FieldValue.serverTimestamp(),
+        }, SetOptions(merge: true));
   }
 
   void _openSourceUrl(String sourceUrl, String title) {
@@ -147,10 +198,45 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     );
   }
 
+  Widget _buildHomeBrand(bool isDark) {
+    final logo = Image.asset(
+      'assets/logo_ozet.png',
+      height: 104,
+      filterQuality: FilterQuality.high,
+      semanticLabel: 'Özet',
+    );
+
+    if (!isDark) return logo;
+
+    return ColorFiltered(
+      colorFilter: const ColorFilter.mode(Colors.white, BlendMode.srcIn),
+      child: logo,
+    );
+  }
+
+  Widget _buildHomeTopBar({required bool isDark, required Color textColor}) {
+    return LiquidGlassSliverAppBar(
+      isDark: isDark,
+      isScrolled: _isScrolled,
+      systemOverlayStyle: isDark
+          ? SystemUiOverlayStyle.light
+          : SystemUiOverlayStyle.dark,
+      leading: LiquidGlassIconButton(
+        isDark: isDark,
+        foregroundColor: textColor,
+        icon: Icons.settings_outlined,
+        tooltip: 'Ayarlar',
+        onPressed: _openSettings,
+      ),
+      title: _buildHomeBrand(isDark),
+    );
+  }
+
   @override
   void dispose() {
     // Sayfa kapanırsa memory leak olmasın diye controller'ı temizle
     WidgetsBinding.instance.removeObserver(this);
+    _tokenRefreshSubscription?.cancel();
     _scrollController.dispose();
     super.dispose();
   }
@@ -162,71 +248,18 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     final bool isDark = Theme.of(context).brightness == Brightness.dark;
 
     // Renk paleti (Karanlık/Aydınlık moda göre değişir)
-    final Color yaziRengi = isDark ? Colors.white : Colors.black;
-    final Color kartRengi = isDark
-        ? const Color(0xFF1E1E1E) // Koyu gri
-        : Colors.white;
-    final Color altYaziRengi = isDark ? Colors.grey[400]! : Colors.grey[700]!;
-    final Color golgeRengi = isDark
-        ? Colors.black.withValues(alpha: 0.2)
-        : Colors.grey.withValues(alpha: 0.5);
-    final Color scaffoldBg = Theme.of(context).scaffoldBackgroundColor;
+    final Color yaziRengi = isDark ? AppThemePalette.darkText : Colors.black;
+    final Color kartRengi = isDark ? AppThemePalette.darkSurface : Colors.white;
+    final Color altYaziRengi = isDark
+        ? AppThemePalette.darkMuted
+        : Colors.grey[700]!;
 
     return Scaffold(
       body: CustomScrollView(
         controller: _scrollController,
         slivers: [
           // === ÜST BAR (APP BAR) ===
-          SliverAppBar(
-            pinned: true, // Yukarıda sabit kalır
-            floating: false,
-            backgroundColor: Colors.transparent, // Şeffaf başlar
-            elevation: 0, // Gölge yok
-            // Ayarlar İkonu
-            leading: IconButton(
-              icon: Icon(Icons.settings_outlined, color: yaziRengi, size: 28),
-              onPressed: () => Navigator.push(
-                context,
-                MaterialPageRoute(builder: (context) => const SettingsScreen()),
-              ),
-            ),
-
-            // Logo (Temaya göre rengi değişebilir veya filtre uygulanabilir)
-            title: isDark
-                ? ColorFiltered(
-                    colorFilter: const ColorFilter.mode(
-                      Colors.white,
-                      BlendMode.srcIn,
-                    ),
-                    child: Image.asset('assets/logo_ozet.png', height: 120),
-                  )
-                : Image.asset('assets/logo_ozet.png', height: 120),
-            centerTitle: true,
-            actions: const [SizedBox(width: 56)], // Ortalamak için boşluk
-            // Arka Plan Efekti (Blur)
-            flexibleSpace: ClipRect(
-              child: AnimatedSwitcher(
-                duration: const Duration(milliseconds: 200),
-                child: _isScrolled
-                    ? BackdropFilter(
-                        key: const ValueKey('blurred'),
-                        filter: ui.ImageFilter.blur(sigmaX: 10, sigmaY: 10),
-                        child: Container(
-                          decoration: BoxDecoration(
-                            color: isDark
-                                ? Colors.black.withValues(alpha: 0.3)
-                                : Colors.white.withValues(alpha: 0.3),
-                          ),
-                        ),
-                      )
-                    : Container(
-                        key: const ValueKey('solid'),
-                        decoration: BoxDecoration(color: scaffoldBg),
-                      ),
-              ),
-            ),
-          ),
-
+          _buildHomeTopBar(isDark: isDark, textColor: yaziRengi),
           // === ANA İÇERİK ===
           SliverToBoxAdapter(
             child: Padding(
@@ -247,22 +280,20 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
                   // 1. Partner ve Günlük Kartlar
                   SizedBox(
-                    height: 145,
-                    child: _buildLiveWidgets(
-                      kartRengi,
-                      yaziRengi,
-                      altYaziRengi,
+                    height: 164,
+                    child: Padding(
+                      padding: const EdgeInsets.only(bottom: 6),
+                      child: _buildLiveWidgets(
+                        kartRengi,
+                        yaziRengi,
+                        altYaziRengi,
+                      ),
                     ),
                   ),
 
                   const SizedBox(height: 0.01), // Ayrım boşluğu
                   // 2. Haber Akışı
-                  _buildNewsFeed(
-                    kartRengi,
-                    yaziRengi,
-                    altYaziRengi,
-                    golgeRengi,
-                  ),
+                  _buildNewsFeed(kartRengi, yaziRengi, altYaziRengi),
                 ],
               ),
             ),
@@ -278,76 +309,147 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     Color yaziRengi,
     Color altYaziRengi,
   ) {
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        Expanded(child: PartnerWidget(cardColor: kartRengi)),
-        const SizedBox(width: 15),
-        Expanded(
-          child: DailyCardsWidget(
-            entry: _todayScore,
-            isLoading: _isDailyScoreLoading,
-            onDailyScoreTap: _openDailyScore,
-            onHistoryTap: _openDailyScoreHistory,
-            cardColor: kartRengi,
-            textColor: yaziRengi,
-            mutedColor: altYaziRengi,
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final panelColor = isDark
+        ? AppThemePalette.darkSurface.withValues(alpha: 0.64)
+        : Colors.white.withValues(alpha: 0.46);
+    final dividerColor = isDark
+        ? Colors.white.withValues(alpha: 0.14)
+        : Colors.black.withValues(alpha: 0.075);
+    final panelBorderColor = isDark
+        ? Colors.white.withValues(alpha: 0.20)
+        : Colors.black.withValues(alpha: 0.12);
+    final edgeHighlight = isDark
+        ? Colors.white.withValues(alpha: 0.24)
+        : Colors.white.withValues(alpha: 0.96);
+
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(22),
+        // İki gölge katmanı camı rengini koyulaştırmadan zeminden ayırır.
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: isDark ? 0.32 : 0.10),
+            blurRadius: 28,
+            spreadRadius: -2,
+            offset: const Offset(0, 11),
+          ),
+          BoxShadow(
+            color: Colors.black.withValues(alpha: isDark ? 0.42 : 0.14),
+            blurRadius: 7,
+            offset: const Offset(0, 3),
+          ),
+        ],
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(22),
+        child: BackdropFilter(
+          filter: ui.ImageFilter.blur(sigmaX: 18, sigmaY: 18),
+          child: Stack(
+            fit: StackFit.expand,
+            children: [
+              DecoratedBox(
+                decoration: BoxDecoration(
+                  color: panelColor,
+                  borderRadius: BorderRadius.circular(22),
+                  border: Border.all(color: panelBorderColor),
+                ),
+              ),
+              IgnorePointer(
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: const Alignment(-1, -1),
+                      end: const Alignment(1, 1),
+                      colors: isDark
+                          ? [
+                              Colors.white.withValues(alpha: 0.12),
+                              Colors.transparent,
+                              Colors.transparent,
+                              Colors.white.withValues(alpha: 0.035),
+                            ]
+                          : [
+                              Colors.white.withValues(alpha: 0.70),
+                              Colors.white.withValues(alpha: 0.18),
+                              Colors.transparent,
+                              Colors.white.withValues(alpha: 0.30),
+                            ],
+                      stops: const [0, 0.28, 0.72, 1],
+                    ),
+                  ),
+                ),
+              ),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Expanded(
+                    child: PartnerWidget(cardColor: panelColor, embedded: true),
+                  ),
+                  VerticalDivider(
+                    width: 1,
+                    thickness: 1,
+                    indent: 14,
+                    endIndent: 14,
+                    color: dividerColor,
+                  ),
+                  Expanded(
+                    child: DailyCardsWidget(
+                      entry: _todayScore,
+                      isLoading: _isDailyScoreLoading,
+                      onDailyScoreTap: _openDailyScore,
+                      onHistoryTap: _openDailyScoreHistory,
+                      cardColor: panelColor,
+                      textColor: yaziRengi,
+                      mutedColor: altYaziRengi,
+                      embedded: true,
+                    ),
+                  ),
+                ],
+              ),
+              Align(
+                alignment: Alignment.topCenter,
+                child: Container(
+                  height: 0.8,
+                  margin: const EdgeInsets.symmetric(horizontal: 20),
+                  color: edgeHighlight,
+                ),
+              ),
+            ],
           ),
         ),
-      ],
+      ),
     );
   }
 
   // --- Haber Listesini Oluşturur ---
-  Widget _buildNewsFeed(
-    Color kartRengi,
-    Color yaziRengi,
-    Color altYaziRengi,
-    Color golgeRengi,
-  ) {
-    return StreamBuilder<QuerySnapshot>(
-      stream: _newsStream,
-      builder: (context, snapshot) {
-        // Veri yoksa yükleniyor göster
-        if (!snapshot.hasData) {
-          return const Center(child: CircularProgressIndicator());
-        }
+  Widget _buildNewsFeed(Color kartRengi, Color yaziRengi, Color altYaziRengi) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final dividerColor = isDark
+        ? Colors.white.withValues(alpha: 0.17)
+        : Colors.black.withValues(alpha: 0.14);
 
-        final visibleDocs = snapshot.data!.docs.where(_isVisibleNews).toList();
-
-        if (visibleDocs.isEmpty) {
-          return Padding(
-            padding: const EdgeInsets.only(top: 24),
-            child: Text(
-              "Yayında haber yok.",
-              textAlign: TextAlign.center,
-              style: GoogleFonts.kadwa(fontSize: 14, color: altYaziRengi),
-            ),
-          );
-        }
-
-        return ListView.builder(
-          padding: const EdgeInsets.only(top: 8),
-          itemCount: visibleDocs.length,
-          shrinkWrap: true, // ScrollView içinde olduğu için gerekli
-          physics:
-              const NeverScrollableScrollPhysics(), // Ana scroll'u kullansın
-          itemBuilder: (context, index) {
-            final data = visibleDocs[index].data() as Map<String, dynamic>;
-            return _buildModernNewsCard(
-              title: _textField(data, 'title'),
-              summary: _textField(data, 'summary'),
-              detail: _textField(data, 'detail'),
-              source: _textField(data, 'source', fallback: 'Ozet App'),
-              category: _textField(data, 'category'),
-              sourceUrl: _textField(data, 'sourceUrl'),
-              createdAt: data['publishedAt'] ?? data['createdAt'],
-              kartRengi: kartRengi,
-              yaziRengi: yaziRengi,
-              altYaziRengi: altYaziRengi,
-              golgeRengi: golgeRengi,
-            );
-          },
+    return PaginatedNewsFeed(
+      service: _newsFeedService,
+      isVisible: _isVisibleNews,
+      mutedColor: altYaziRengi,
+      dividerColor: dividerColor,
+      scrollController: _scrollController,
+      itemBuilder: (context, document) {
+        final data = document.data();
+        final newsId = document.id;
+        return _buildNewsListItem(
+          newsId: newsId,
+          isRead: _readNewsIds.contains(newsId),
+          title: _textField(data, 'title'),
+          summary: _textField(data, 'summary'),
+          detail: _textField(data, 'detail'),
+          source: _textField(data, 'source', fallback: 'Ozet App'),
+          category: _textField(data, 'category'),
+          sourceUrl: _textField(data, 'sourceUrl'),
+          createdAt: data['publishedAt'] ?? data['createdAt'],
+          kartRengi: kartRengi,
+          yaziRengi: yaziRengi,
+          altYaziRengi: altYaziRengi,
         );
       },
     );
@@ -418,7 +520,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
   // --- Tekil Haber Kartı Tasarımı ---
   // Admin panelinden gelen mevcut haber alanlarını bozmadan modern kart olarak çizer.
-  Widget _buildModernNewsCard({
+  /// Admin panelinden gelen alanları değiştirmeden editoryal liste satırı çizer.
+  Widget _buildNewsListItem({
+    required String newsId,
+    required bool isRead,
     required String title,
     required String summary,
     required String detail,
@@ -429,40 +534,38 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     required Color kartRengi,
     required Color yaziRengi,
     required Color altYaziRengi,
-    required Color golgeRengi,
   }) {
     final formattedDate = _formatCreatedAt(createdAt);
+    final titleColor = isRead
+        ? Color.lerp(yaziRengi, kartRengi, 0.38)!
+        : yaziRengi;
+    final summaryColor = isRead
+        ? Color.lerp(altYaziRengi, kartRengi, 0.18)!
+        : altYaziRengi;
 
-    return Container(
-      margin: const EdgeInsets.only(bottom: 12.0),
-      decoration: BoxDecoration(
-        color: kartRengi,
-        borderRadius: BorderRadius.circular(18.0),
-        boxShadow: [
-          BoxShadow(
-            color: golgeRengi.withValues(alpha: 0.35),
-            spreadRadius: 0,
-            blurRadius: 14,
-            offset: const Offset(0, 6),
-          ),
-        ],
-      ),
+    return Semantics(
+      button: true,
+      label: isRead ? '$title haberini aç' : 'Okunmamış: $title haberini aç',
       child: Material(
         color: Colors.transparent,
-        borderRadius: BorderRadius.circular(18.0),
         child: InkWell(
-          borderRadius: BorderRadius.circular(18.0),
-          onTap: () => _showModernDetailModal(
-            title,
-            detail,
-            summary,
-            source,
-            sourceUrl,
-            kartRengi,
-            yaziRengi,
-          ),
+          borderRadius: BorderRadius.circular(8),
+          splashColor: yaziRengi.withValues(alpha: 0.06),
+          highlightColor: yaziRengi.withValues(alpha: 0.035),
+          onTap: () {
+            _markNewsAsRead(newsId);
+            _showModernDetailModal(
+              title,
+              detail,
+              summary,
+              source,
+              sourceUrl,
+              kartRengi,
+              yaziRengi,
+            );
+          },
           child: Padding(
-            padding: const EdgeInsets.fromLTRB(14, 16, 18, 16),
+            padding: const EdgeInsets.symmetric(vertical: 18),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -484,6 +587,17 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                         ),
                       ),
                     ],
+                    if (!isRead) ...[
+                      const SizedBox(width: 10),
+                      Container(
+                        width: 7,
+                        height: 7,
+                        decoration: BoxDecoration(
+                          color: yaziRengi,
+                          shape: BoxShape.circle,
+                        ),
+                      ),
+                    ],
                   ],
                 ),
                 const SizedBox(height: 12),
@@ -491,42 +605,24 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                   title,
                   style: GoogleFonts.kadwa(
                     fontSize: 18,
-                    fontWeight: FontWeight.bold,
-                    color: yaziRengi,
+                    fontWeight: isRead ? FontWeight.w600 : FontWeight.bold,
+                    color: titleColor,
                     height: 1.2,
                   ),
                 ),
-                const SizedBox(height: 8),
-                Text(
-                  summary,
-                  style: GoogleFonts.kadwa(
-                    fontSize: 14,
-                    color: altYaziRengi,
-                    height: 1.45,
+                if (summary.isNotEmpty) ...[
+                  const SizedBox(height: 8),
+                  Text(
+                    summary,
+                    style: GoogleFonts.kadwa(
+                      fontSize: 14,
+                      color: summaryColor,
+                      height: 1.45,
+                    ),
+                    maxLines: 3,
+                    overflow: TextOverflow.ellipsis,
                   ),
-                  maxLines: 3,
-                  overflow: TextOverflow.ellipsis,
-                ),
-                const SizedBox(height: 14),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.end,
-                  children: [
-                    Text(
-                      "Detayı oku",
-                      style: GoogleFonts.kadwa(
-                        fontSize: 12,
-                        fontWeight: FontWeight.bold,
-                        color: altYaziRengi,
-                      ),
-                    ),
-                    const SizedBox(width: 4),
-                    Icon(
-                      Icons.arrow_forward_ios,
-                      size: 12,
-                      color: altYaziRengi,
-                    ),
-                  ],
-                ),
+                ],
               ],
             ),
           ),

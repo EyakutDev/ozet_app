@@ -3,10 +3,15 @@ import 'package:flutter/services.dart'; // <-- BU SATIR ÇOK ÖNEMLİ, EKLENDİ
 import 'package:google_fonts/google_fonts.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:cloud_functions/cloud_functions.dart';
 import 'package:ozet_app/screens/auth_screen.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:ozet_app/main.dart'; // themeNotifier için şart!
+import 'package:ozet_app/theme/app_theme_palette.dart';
+import 'package:ozet_app/models/partner_status_view.dart';
 import 'package:ozet_app/widgets/app_feedback.dart';
+import 'package:ozet_app/services/notification_preferences_service.dart';
+import 'package:ozet_app/widgets/liquid_glass_app_bar.dart';
 import 'dart:ui' as ui;
 
 class SettingsScreen extends StatefulWidget {
@@ -23,8 +28,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool get isDark => themeNotifier.value == ThemeMode.dark;
   // Toggle Değişkenleri
   bool gununOzeti = true;
-  bool aksamOzeti = true;
-  bool sessizMod = false;
+  bool aksamHatirlatmasi = true;
+  bool partnerBildirimleri = true;
+  final NotificationPreferencesService _notificationPreferencesService =
+      NotificationPreferencesService();
+  final FirebaseFunctions _functions = FirebaseFunctions.instanceFor(
+    region: 'europe-west1',
+  );
   // Eşleşme Değişkenleri
   String? _generatedCode;
   String? _pairedWith;
@@ -65,13 +75,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
     super.dispose();
   }
 
-  // SharedPreferences'ten daha önce kaydedilmiş bildirim ayarlarını okuyup ekrana uygular.
+  // Yerel tercihleri okur; eski akşam özeti ayarını yeni hatırlatmaya taşır.
   Future<void> _loadSettings() async {
-    final prefs = await SharedPreferences.getInstance();
+    final preferences = await _notificationPreferencesService.load();
+    if (!mounted) return;
     setState(() {
-      gununOzeti = prefs.getBool('gununOzeti') ?? true;
-      aksamOzeti = prefs.getBool('aksamOzeti') ?? true;
-      sessizMod = prefs.getBool('sessizMod') ?? false;
+      gununOzeti = preferences.morningDigest;
+      aksamHatirlatmasi = preferences.eveningCheckIn;
+      partnerBildirimleri = preferences.partnerUpdates;
     });
   }
 
@@ -116,34 +127,31 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
-  // === 1. KOD OLUŞTURMA (Benim İçin) ===
-  // Kullanıcı için yeni bir 6 haneli eşleşme kodu üretir, Firestore'a kaydeder ve duruma uygular.
+  // Eşleşme kodunu backend benzersiz üretir ve özel pair_codes kaydıyla ayırır.
   Future<void> _generatePairCode() async {
-    if (currentUser == null) return;
+    if (currentUser == null || _isPairingLoading) return;
     setState(() => _isPairingLoading = true);
-    // 6 Haneli Rastgele Kod
-    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
-    String code = List.generate(
-      6,
-      (index) => chars[DateTime.now().microsecondsSinceEpoch % chars.length],
-    ).join();
+
     try {
-      // Kodu Firestore'a kaydet
-      await FirebaseFirestore.instance
-          .collection('users')
-          .doc(currentUser!.uid)
-          .set({
-            'pairCode': code,
-            'email': currentUser!.email,
-            'pairedWith': null,
-          }, SetOptions(merge: true));
-      setState(() {
-        _generatedCode = code;
-        _isPairingLoading = false;
-      });
-    } catch (e) {
-      debugPrint("Hata: $e");
-      setState(() => _isPairingLoading = false);
+      final result = await _functions.httpsCallable('createPairCode').call();
+      final data = result.data as Map?;
+      final code = data?['code'] as String?;
+      if (code == null || code.isEmpty) {
+        throw StateError('Eşleşme kodu alınamadı.');
+      }
+      if (!mounted) return;
+      setState(() => _generatedCode = code);
+    } catch (_) {
+      if (!mounted) return;
+      AppFeedback.show(
+        context,
+        'Eşleşme kodu oluşturulamadı.',
+        type: AppFeedbackType.error,
+        actionLabel: 'Tekrar dene',
+        onAction: _generatePairCode,
+      );
+    } finally {
+      if (mounted) setState(() => _isPairingLoading = false);
     }
   }
 
@@ -162,77 +170,58 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
-  // === 2. KOD GİRME VE EŞLEŞME (Eşim İçin) ===
-  // Kullanıcının girdiği eşleşme kodunu kontrol eder, doğruysa partner ile eşleştirir.
+  // Girilen kod backend transaction'ında doğrulanır ve iki kullanıcı birlikte eşleştirilir.
   Future<void> _enterPairCode() async {
-    String inputCode = _pairCodeController.text.trim().toUpperCase();
-    if (inputCode.isEmpty || currentUser == null) return;
+    final inputCode = _pairCodeController.text.trim().toUpperCase();
+    if (inputCode.isEmpty || currentUser == null || _isPairingLoading) return;
     setState(() => _isPairingLoading = true);
+
     try {
-      // Bu koda sahip kullanıcıyı bul
-      var querySnapshot = await FirebaseFirestore.instance
-          .collection('users')
-          .where('pairCode', isEqualTo: inputCode)
-          .get();
+      final result = await _functions.httpsCallable('pairWithCode').call({
+        'code': inputCode,
+      });
+      final data = result.data as Map?;
+      final partnerUid = data?['partnerUid'] as String?;
+      if (partnerUid == null || partnerUid.isEmpty) {
+        throw StateError('Partner bilgisi alınamadı.');
+      }
       if (!mounted) return;
 
-      if (querySnapshot.docs.isEmpty) {
-        AppFeedback.show(
-          context,
-          "Hatalı kod girdin.",
-          type: AppFeedbackType.error,
-        );
-        setState(() => _isPairingLoading = false);
-        return;
-      }
-      String partnerUid = querySnapshot.docs.first.id;
-      if (partnerUid == currentUser!.uid) {
-        AppFeedback.show(
-          context,
-          "Kendinle eşleşemezsin.",
-          type: AppFeedbackType.error,
-        );
-        setState(() => _isPairingLoading = false);
-        return;
-      }
-      // Batch işlemi ile iki tarafı da güncelle
-      WriteBatch batch = FirebaseFirestore.instance.batch();
-      // Ben -> Onu ekle
-      batch.set(
-        FirebaseFirestore.instance.collection('users').doc(currentUser!.uid),
-        {'pairedWith': partnerUid, 'pairCode': FieldValue.delete()},
-        SetOptions(merge: true),
-      );
-      // O -> Beni ekle
-      batch.set(
-        FirebaseFirestore.instance.collection('users').doc(partnerUid),
-        {'pairedWith': currentUser!.uid, 'pairCode': FieldValue.delete()},
-        SetOptions(merge: true),
-      );
-      await batch.commit();
-      if (!mounted) return;
-
-      AppFeedback.show(
-        context,
-        "Eşleşme başarılı.",
-        type: AppFeedbackType.success,
-      );
       _pairCodeController.clear();
       setState(() {
         _generatedCode = null;
         _pairedWith = partnerUid;
-        _isPairingLoading = false;
       });
-    } catch (e) {
-      debugPrint("Hata: $e");
-      if (!mounted) return;
-
       AppFeedback.show(
         context,
-        "Eşleşme tamamlanamadı. Lütfen tekrar dene.",
-        type: AppFeedbackType.error,
+        'Eşleşme başarılı.',
+        type: AppFeedbackType.success,
       );
-      setState(() => _isPairingLoading = false);
+    } on FirebaseFunctionsException catch (error) {
+      if (!mounted) return;
+      final message = switch (error.code) {
+        'not-found' => 'Eşleşme kodu bulunamadı.',
+        'failed-precondition' => error.message ?? 'Eşleşme tamamlanamadı.',
+        _ => 'Eşleşme tamamlanamadı.',
+      };
+      AppFeedback.show(
+        context,
+        message,
+        type: AppFeedbackType.error,
+        actionLabel: 'Tekrar dene',
+        onAction: _enterPairCode,
+      );
+    } catch (_) {
+      if (!mounted) return;
+      AppFeedback.show(
+        context,
+        'Eşleşme tamamlanamadı.',
+        type: AppFeedbackType.error,
+        actionLabel: 'Tekrar dene',
+        onAction: _enterPairCode,
+      );
+    } finally {
+      if (mounted) setState(() => _isPairingLoading = false);
     }
   }
 
@@ -379,44 +368,36 @@ class _SettingsScreenState extends State<SettingsScreen> {
     await _unpairPartner();
   }
 
-  // Mevcut eşleşmeyi kaldırır, hem kendi hem partnerin Firestore verilerini temizler.
+  // Backend iki tarafı transaction içinde ayırır; istemci partner belgesine yazmaz.
   Future<void> _unpairPartner() async {
-    if (currentUser == null || _pairedWith == null) return;
+    if (currentUser == null || _pairedWith == null || _isPairingLoading) return;
+    setState(() => _isPairingLoading = true);
 
-    final partnerUid = _pairedWith!;
-    final batch = FirebaseFirestore.instance.batch();
-    final myRef = FirebaseFirestore.instance
-        .collection('users')
-        .doc(currentUser!.uid);
-    final partnerRef = FirebaseFirestore.instance
-        .collection('users')
-        .doc(partnerUid);
-
-    batch.set(myRef, {
-      'pairedWith': FieldValue.delete(),
-      'partnerNickname': FieldValue.delete(),
-      'pairCode': FieldValue.delete(),
-    }, SetOptions(merge: true));
-    batch.set(partnerRef, {
-      'pairedWith': FieldValue.delete(),
-      'partnerNickname': FieldValue.delete(),
-      'pairCode': FieldValue.delete(),
-    }, SetOptions(merge: true));
-
-    await batch.commit();
-
-    setState(() {
-      _pairedWith = null;
-      _partnerNickname = null;
-      _generatedCode = null;
-    });
-
-    if (!mounted) return;
-    AppFeedback.show(
-      context,
-      "Eşleşme bitirildi.",
-      type: AppFeedbackType.success,
-    );
+    try {
+      await _functions.httpsCallable('endPairing').call();
+      if (!mounted) return;
+      setState(() {
+        _pairedWith = null;
+        _partnerNickname = null;
+        _generatedCode = null;
+      });
+      AppFeedback.show(
+        context,
+        'Eşleşme bitirildi.',
+        type: AppFeedbackType.success,
+      );
+    } catch (_) {
+      if (!mounted) return;
+      AppFeedback.show(
+        context,
+        'Eşleşme bitirilemedi.',
+        type: AppFeedbackType.error,
+        actionLabel: 'Tekrar dene',
+        onAction: _unpairPartner,
+      );
+    } finally {
+      if (mounted) setState(() => _isPairingLoading = false);
+    }
   }
 
   @override
@@ -435,31 +416,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
       body: CustomScrollView(
         controller: _scrollController,
         slivers: [
-          SliverAppBar(
-            pinned: true,
-            floating: false,
-            toolbarHeight: 62,
-            elevation: 0,
-            scrolledUnderElevation: 0,
-            backgroundColor: Colors.transparent,
-            surfaceTintColor: Colors.transparent,
+          LiquidGlassSliverAppBar(
+            isDark: palette.isDark,
+            isScrolled: _isScrolled,
             systemOverlayStyle: overlayStyle,
-            centerTitle: true,
-            leadingWidth: 66,
-            leading: Padding(
-              padding: const EdgeInsets.only(left: 14),
-              child: IconButton(
-                tooltip: 'Geri',
-                onPressed: () => Navigator.of(context).pop(),
-                icon: const Icon(Icons.arrow_back_ios_new_rounded, size: 18),
-                color: palette.text,
-                style: IconButton.styleFrom(
-                  backgroundColor: palette.surface.withValues(alpha: 0.84),
-                  side: BorderSide(color: palette.border),
-                  fixedSize: const Size.square(40),
-                  shape: const CircleBorder(),
-                ),
-              ),
+            leading: LiquidGlassIconButton(
+              isDark: palette.isDark,
+              foregroundColor: palette.text,
+              icon: Icons.arrow_back_ios_new_rounded,
+              iconSize: 17,
+              tooltip: 'Geri',
+              onPressed: () => Navigator.of(context).pop(),
             ),
             title: AnimatedOpacity(
               opacity: _isScrolled ? 1 : 0,
@@ -472,17 +439,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   fontSize: 16,
                   fontWeight: FontWeight.w700,
                   letterSpacing: 0,
-                ),
-              ),
-            ),
-            flexibleSpace: ClipRect(
-              child: BackdropFilter(
-                filter: ui.ImageFilter.blur(sigmaX: 14, sigmaY: 14),
-                child: AnimatedContainer(
-                  duration: const Duration(milliseconds: 180),
-                  color: _isScrolled
-                      ? palette.scaffold.withValues(alpha: 0.88)
-                      : palette.scaffold,
                 ),
               ),
             ),
@@ -527,8 +483,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       const SizedBox(height: 8),
                       _buildSettingsCard(
                         title: 'Bildirimler',
-                        subtitle:
-                            'Gün içinde ne zaman haber almak istediğini belirle.',
+                        subtitle: 'Yalnızca gerekli bildirimleri seç.',
                         palette: palette,
                         children: [
                           _buildNotificationOption(
@@ -536,28 +491,35 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             title: 'Günün Özeti',
                             subtitle: 'Sabah kısa gündem bildirimi',
                             value: gununOzeti,
-                            onChanged: (value) =>
-                                _saveNotificationSetting('gununOzeti', value),
+                            onChanged: (value) => _saveNotificationSetting(
+                              NotificationPreferencesService.morningKey,
+                              value,
+                            ),
                             palette: palette,
                           ),
                           _buildSettingsDivider(palette, indent: 50),
                           _buildNotificationOption(
                             icon: Icons.nights_stay_outlined,
-                            title: 'Akşam Özeti',
-                            subtitle: 'Günün kapanış özeti',
-                            value: aksamOzeti,
-                            onChanged: (value) =>
-                                _saveNotificationSetting('aksamOzeti', value),
+                            title: 'Akşam Hatırlatması',
+                            subtitle:
+                                'Gününü değerlendirmek için tek hatırlatma',
+                            value: aksamHatirlatmasi,
+                            onChanged: (value) => _saveNotificationSetting(
+                              NotificationPreferencesService.eveningKey,
+                              value,
+                            ),
                             palette: palette,
                           ),
                           _buildSettingsDivider(palette, indent: 50),
                           _buildNotificationOption(
-                            icon: Icons.notifications_off_outlined,
-                            title: 'Sessiz Mod',
-                            subtitle: 'Bildirimleri günde 1 kez sınırlar',
-                            value: sessizMod,
-                            onChanged: (value) =>
-                                _saveNotificationSetting('sessizMod', value),
+                            icon: Icons.favorite_border_rounded,
+                            title: 'Partner Paylaşımları',
+                            subtitle: 'Durum, not ve çizim bildirimleri',
+                            value: partnerBildirimleri,
+                            onChanged: (value) => _saveNotificationSetting(
+                              NotificationPreferencesService.partnerKey,
+                              value,
+                            ),
                             palette: palette,
                           ),
                         ],
@@ -577,21 +539,43 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
-  // Kullanıcının bildirim tercihlerini kaydeder ve ekranı günceller.
+  // Tercihi önce ekranda uygular; uzak kayıt başarısızsa geri alıp yeniden deneme sunar.
   Future<void> _saveNotificationSetting(String key, bool value) async {
-    setState(() {
-      switch (key) {
-        case 'gununOzeti':
-          gununOzeti = value;
-        case 'aksamOzeti':
-          aksamOzeti = value;
-        case 'sessizMod':
-          sessizMod = value;
-      }
-    });
+    final previousValue = switch (key) {
+      NotificationPreferencesService.morningKey => gununOzeti,
+      NotificationPreferencesService.eveningKey => aksamHatirlatmasi,
+      NotificationPreferencesService.partnerKey => partnerBildirimleri,
+      _ => value,
+    };
 
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool(key, value);
+    void applyValue(bool nextValue) {
+      if (!mounted) return;
+      setState(() {
+        switch (key) {
+          case NotificationPreferencesService.morningKey:
+            gununOzeti = nextValue;
+          case NotificationPreferencesService.eveningKey:
+            aksamHatirlatmasi = nextValue;
+          case NotificationPreferencesService.partnerKey:
+            partnerBildirimleri = nextValue;
+        }
+      });
+    }
+
+    applyValue(value);
+    try {
+      await _notificationPreferencesService.update(key, value);
+    } catch (_) {
+      applyValue(previousValue);
+      if (!mounted) return;
+      AppFeedback.show(
+        context,
+        'Bildirim tercihi kaydedilemedi.',
+        type: AppFeedbackType.error,
+        actionLabel: 'Tekrar dene',
+        onAction: () => _saveNotificationSetting(key, value),
+      );
+    }
   }
 
   // Profil kartı: kullanıcı adını, e-postayı ve üyelik durumunu gösterir.
@@ -1065,12 +1049,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
             : accountName?.isNotEmpty == true
             ? accountName!
             : 'Partner';
-        final rawStatus = (data?['statusText'] as String?)?.trim();
+        final partnerStatus = PartnerStatusView.fromData(
+          data,
+          fallbackText: 'Henüz durum paylaşmadı',
+        );
         final statusText = snapshot.connectionState == ConnectionState.waiting
             ? 'Durum alınıyor…'
-            : rawStatus?.isNotEmpty == true
-            ? rawStatus!
-            : 'Henüz durum paylaşmadı';
+            : partnerStatus.text;
         final initial = displayName.characters.first.toUpperCase();
 
         return Column(
@@ -2124,19 +2109,23 @@ class _SettingsPalette {
 
     return _SettingsPalette(
       isDark: isDark,
-      scaffold: Theme.of(context).scaffoldBackgroundColor,
-      surface: isDark ? const Color(0xFF1E1E1E) : Colors.white,
+      scaffold: isDark
+          ? AppThemePalette.darkScaffold
+          : Theme.of(context).scaffoldBackgroundColor,
+      surface: isDark ? AppThemePalette.darkSurface : Colors.white,
       controlSurface: isDark
-          ? const Color(0xFF2A2A2C)
+          ? AppThemePalette.darkSurfaceStrong
           : const Color(0xFFF4F4F6),
-      selectedSurface: isDark ? const Color(0xFF3A3A3C) : Colors.white,
-      text: isDark ? const Color(0xFFF5F5F7) : const Color(0xFF111114),
-      muted: isDark ? const Color(0xFFA1A1A6) : const Color(0xFF6E6E73),
+      selectedSurface: isDark
+          ? AppThemePalette.darkSurfaceStrong
+          : Colors.white,
+      text: isDark ? AppThemePalette.darkText : const Color(0xFF111114),
+      muted: isDark ? AppThemePalette.darkMuted : const Color(0xFF6E6E73),
       border: isDark
           ? Colors.white.withValues(alpha: 0.10)
           : const Color(0xFFE7E7EA),
-      accent: isDark ? const Color(0xFFF5F5F7) : const Color(0xFF111114),
-      onAccent: isDark ? const Color(0xFF111114) : Colors.white,
+      accent: isDark ? AppThemePalette.darkText : const Color(0xFF111114),
+      onAccent: isDark ? AppThemePalette.darkOnAccent : Colors.white,
       shadow: Colors.black.withValues(alpha: isDark ? 0.24 : 0.07),
       danger: isDark ? const Color(0xFFFF7A7A) : const Color(0xFFC7353D),
     );

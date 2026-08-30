@@ -12,6 +12,8 @@ class AppFeedback {
     BuildContext context,
     String message, {
     AppFeedbackType type = AppFeedbackType.info,
+    String? actionLabel,
+    VoidCallback? onAction,
   }) {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
@@ -35,7 +37,9 @@ class AppFeedback {
           elevation: 0,
           backgroundColor: Colors.transparent,
           margin: const EdgeInsets.fromLTRB(18, 0, 18, 18),
-          duration: const Duration(seconds: 3),
+          duration: onAction == null
+              ? const Duration(seconds: 3)
+              : const Duration(seconds: 6),
           content: Container(
             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
             decoration: BoxDecoration(
@@ -59,7 +63,7 @@ class AppFeedback {
                 Expanded(
                   child: Text(
                     message,
-                    style: GoogleFonts.kadwa(
+                    style: GoogleFonts.inter(
                       color: isDark ? Colors.white : Colors.black,
                       fontSize: 14,
                       height: 1.25,
@@ -67,6 +71,23 @@ class AppFeedback {
                     ),
                   ),
                 ),
+                if (onAction != null && actionLabel != null) ...[
+                  const SizedBox(width: 8),
+                  TextButton(
+                    onPressed: () {
+                      messenger.hideCurrentSnackBar();
+                      onAction();
+                    },
+                    style: TextButton.styleFrom(
+                      foregroundColor: accent,
+                      textStyle: GoogleFonts.inter(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    child: Text(actionLabel),
+                  ),
+                ],
               ],
             ),
           ),

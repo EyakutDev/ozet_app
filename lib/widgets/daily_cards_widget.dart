@@ -2,6 +2,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:ozet_app/models/daily_score_entry.dart';
+import 'package:ozet_app/widgets/home_panel_controls.dart';
 
 class DailyCardsWidget extends StatefulWidget {
   const DailyCardsWidget({
@@ -13,6 +14,7 @@ class DailyCardsWidget extends StatefulWidget {
     required this.cardColor,
     required this.textColor,
     required this.mutedColor,
+    this.embedded = false,
   });
 
   final DailyScoreEntry? entry;
@@ -22,6 +24,7 @@ class DailyCardsWidget extends StatefulWidget {
   final Color cardColor;
   final Color textColor;
   final Color mutedColor;
+  final bool embedded;
 
   @override
   State<DailyCardsWidget> createState() => _DailyCardsWidgetState();
@@ -46,8 +49,17 @@ class _DailyCardsWidgetState extends State<DailyCardsWidget> {
     final scoreAccent = isDark
         ? const Color(0xFFF5F5F5)
         : const Color(0xFF111111);
-    final activeAccent = _currentPage == 0 ? scoreAccent : Colors.teal;
     final borderColor = isDark ? Colors.grey[850]! : const Color(0xFFE9EEF4);
+    final pages = PageView(
+      scrollDirection: Axis.horizontal,
+      onPageChanged: (index) => setState(() => _currentPage = index),
+      children: [
+        _buildDailyScorePage(scoreAccent),
+        _buildDetoxPage(scoreAccent),
+      ],
+    );
+
+    if (widget.embedded) return pages;
 
     return AnimatedContainer(
       duration: const Duration(milliseconds: 260),
@@ -60,20 +72,13 @@ class _DailyCardsWidgetState extends State<DailyCardsWidget> {
           BoxShadow(
             color: isDark
                 ? Colors.black.withValues(alpha: 0.20)
-                : activeAccent.withValues(alpha: 0.16),
+                : scoreAccent.withValues(alpha: 0.16),
             blurRadius: 16,
             offset: const Offset(0, 8),
           ),
         ],
       ),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(20),
-        child: PageView(
-          scrollDirection: Axis.horizontal,
-          onPageChanged: (index) => setState(() => _currentPage = index),
-          children: [_buildDailyScorePage(scoreAccent), _buildDetoxPage()],
-        ),
-      ),
+      child: ClipRRect(borderRadius: BorderRadius.circular(20), child: pages),
     );
   }
 
@@ -121,30 +126,29 @@ class _DailyCardsWidgetState extends State<DailyCardsWidget> {
   Widget _buildEmptyDailyScore(Color accentColor) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
-      mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
-        Text(
-          'Bugününü\ndeğerlendir',
-          style: GoogleFonts.kadwa(
-            color: widget.textColor,
-            fontSize: 16,
-            fontWeight: FontWeight.bold,
-            height: 1.15,
-          ),
-        ),
-        Row(
-          children: [
-            Text(
-              'Başla',
-              style: GoogleFonts.kadwa(
-                color: widget.mutedColor,
-                fontSize: 11,
-                fontWeight: FontWeight.bold,
+        Expanded(
+          child: Align(
+            alignment: Alignment.centerLeft,
+            child: Text(
+              'Bugününü değerlendir',
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: GoogleFonts.inter(
+                color: widget.textColor,
+                fontSize: 16,
+                fontWeight: FontWeight.w700,
+                height: 1.1,
+                letterSpacing: 0,
               ),
             ),
-            const Spacer(),
-            Icon(Icons.arrow_forward_ios, size: 11, color: widget.mutedColor),
-          ],
+          ),
+        ),
+        HomePanelFooter(
+          activeIndex: _currentPage,
+          foregroundColor: accentColor,
+          mutedColor: widget.mutedColor,
+          actionLabel: 'Değerlendir',
         ),
       ],
     );
@@ -155,62 +159,65 @@ class _DailyCardsWidgetState extends State<DailyCardsWidget> {
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
-      mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
-        Row(
-          crossAxisAlignment: CrossAxisAlignment.end,
-          children: [
-            Text(
-              scoreText,
-              style: GoogleFonts.kadwa(
-                color: accentColor,
-                fontSize: 28,
-                fontWeight: FontWeight.bold,
-                height: 0.9,
+        Expanded(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  Text(
+                    scoreText,
+                    style: GoogleFonts.inter(
+                      color: accentColor,
+                      fontSize: 27,
+                      fontWeight: FontWeight.w700,
+                      height: 1,
+                      letterSpacing: 0,
+                    ),
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.only(left: 3, bottom: 2),
+                    child: Text(
+                      '/10',
+                      style: GoogleFonts.inter(
+                        color: widget.mutedColor,
+                        fontSize: 8.5,
+                        fontWeight: FontWeight.w600,
+                        letterSpacing: 0,
+                      ),
+                    ),
+                  ),
+                ],
               ),
-            ),
-            Padding(
-              padding: const EdgeInsets.only(left: 3, bottom: 1),
-              child: Text(
-                '/10',
-                style: GoogleFonts.kadwa(
-                  color: widget.mutedColor,
-                  fontSize: 10,
-                ),
-              ),
-            ),
-          ],
-        ),
-        Text(
-          entry.summaryLabel,
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          style: GoogleFonts.kadwa(
-            color: widget.textColor,
-            fontSize: 11,
-            fontWeight: FontWeight.bold,
-          ),
-        ),
-        Row(
-          children: [
-            Expanded(
-              child: Text(
-                entry.note.isEmpty ? 'Düzenle' : entry.note,
+              const SizedBox(height: 5),
+              Text(
+                entry.summaryLabel,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
-                style: GoogleFonts.kadwa(color: widget.mutedColor, fontSize: 9),
+                style: GoogleFonts.inter(
+                  color: widget.textColor,
+                  fontSize: 10.5,
+                  fontWeight: FontWeight.w600,
+                  letterSpacing: 0,
+                ),
               ),
-            ),
-            Icon(Icons.edit_outlined, size: 13, color: widget.mutedColor),
-          ],
+            ],
+          ),
+        ),
+        HomePanelFooter(
+          activeIndex: _currentPage,
+          foregroundColor: accentColor,
+          mutedColor: widget.mutedColor,
+          actionLabel: 'Düzenle',
         ),
       ],
     );
   }
 
-  Widget _buildDetoxPage() {
-    const accentColor = Colors.teal;
-
+  Widget _buildDetoxPage(Color accentColor) {
     return StreamBuilder<QuerySnapshot>(
       stream: FirebaseFirestore.instance.collection('news').snapshots(),
       builder: (context, snapshot) {
@@ -223,45 +230,49 @@ class _DailyCardsWidgetState extends State<DailyCardsWidget> {
           padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               _buildHeader(
                 title: 'Detoks',
                 icon: Icons.spa_outlined,
                 accentColor: accentColor,
               ),
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    savedMinutes == null ? '--' : '$savedMinutes dk',
-                    style: GoogleFonts.kadwa(
-                      color: accentColor,
-                      fontSize: 25,
-                      fontWeight: FontWeight.bold,
-                      height: 1,
+              Expanded(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      savedMinutes == null ? '--' : '$savedMinutes dk',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: GoogleFonts.inter(
+                        color: accentColor,
+                        fontSize: 24,
+                        fontWeight: FontWeight.w700,
+                        height: 1,
+                        letterSpacing: 0,
+                      ),
                     ),
-                  ),
-                  const SizedBox(height: 3),
-                  Text(
-                    'kazandığın süre',
-                    style: GoogleFonts.kadwa(
-                      color: widget.mutedColor,
-                      fontSize: 11,
-                      height: 1.1,
+                    const SizedBox(height: 5),
+                    Text(
+                      newsCount == null ? 'Hesaplanıyor' : '$newsCount özet',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: GoogleFonts.inter(
+                        color: widget.mutedColor,
+                        fontSize: 10,
+                        fontWeight: FontWeight.w500,
+                        letterSpacing: 0,
+                      ),
                     ),
-                  ),
-                ],
-              ),
-              Text(
-                newsCount == null ? 'Yükleniyor' : '$newsCount özet okundu',
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: GoogleFonts.kadwa(
-                  color: widget.textColor,
-                  fontSize: 12,
-                  fontWeight: FontWeight.bold,
+                  ],
                 ),
+              ),
+              HomePanelFooter(
+                activeIndex: _currentPage,
+                foregroundColor: accentColor,
+                mutedColor: widget.mutedColor,
+                showChevron: false,
               ),
             ],
           ),
@@ -284,63 +295,21 @@ class _DailyCardsWidgetState extends State<DailyCardsWidget> {
             title,
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
-            style: GoogleFonts.kadwa(color: widget.mutedColor, fontSize: 14),
+            style: GoogleFonts.inter(
+              color: widget.mutedColor,
+              fontSize: 11,
+              fontWeight: FontWeight.w500,
+              letterSpacing: 0,
+            ),
           ),
         ),
-        _buildPageDots(accentColor),
-        const SizedBox(width: 7),
-        if (onAction == null)
-          Container(
-            width: 28,
-            height: 28,
-            alignment: Alignment.center,
-            decoration: BoxDecoration(
-              color: accentColor.withValues(alpha: 0.12),
-              borderRadius: BorderRadius.circular(8),
-            ),
-            child: Icon(icon, size: 16, color: accentColor),
-          )
-        else
-          SizedBox(
-            width: 28,
-            height: 28,
-            child: IconButton(
-              onPressed: onAction,
-              tooltip: actionTooltip,
-              padding: EdgeInsets.zero,
-              constraints: const BoxConstraints.tightFor(width: 28, height: 28),
-              style: IconButton.styleFrom(
-                backgroundColor: accentColor.withValues(alpha: 0.12),
-                foregroundColor: accentColor,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(8),
-                ),
-              ),
-              icon: Icon(icon, size: 16),
-            ),
-          ),
+        HomePanelIcon(
+          icon: icon,
+          foregroundColor: accentColor,
+          onTap: onAction,
+          tooltip: actionTooltip,
+        ),
       ],
-    );
-  }
-
-  Widget _buildPageDots(Color activeColor) {
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: List.generate(2, (index) {
-        final isActive = index == _currentPage;
-        return AnimatedContainer(
-          duration: const Duration(milliseconds: 180),
-          margin: const EdgeInsets.only(left: 3),
-          width: isActive ? 14 : 5,
-          height: 5,
-          decoration: BoxDecoration(
-            color: isActive
-                ? activeColor
-                : widget.mutedColor.withValues(alpha: 0.35),
-            borderRadius: BorderRadius.circular(99),
-          ),
-        );
-      }),
     );
   }
 }

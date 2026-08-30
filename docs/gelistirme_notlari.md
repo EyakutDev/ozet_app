@@ -8,51 +8,69 @@ Ozet App, Firebase tabanli bir Flutter haber/ozet uygulamasidir.
 
 - Kullanici Firebase Auth ile e-posta/sifre veya Google hesabi ile giris yapar.
 - Splash ekrani mevcut oturuma gore kullaniciyi ana sayfaya veya auth ekranina yonlendirir.
-- Ana sayfa Firestore `news` koleksiyonundan haberleri okur; finans kartinin yerinde cihazda saklanan gunluk puan kartini gosterir.
+- Ana sayfa Firestore `news` koleksiyonunu 12 haberlik cursor sayfalariyla ve cevrim disi cache destegiyle okur; finans kartinin yerinde cihazda saklanan gunluk puan kartini gosterir.
 - Haberler admin panelinden manuel eklenen alanlarla calisir: `title`, `summary`, `detail`, `source`, `createdAt`.
-- Partner/eslesme ozelligi Firestore `users` dokumanlari uzerinden calisir.
-- Tema secimi ve bildirim tercihleri `SharedPreferences` ile cihazda saklanir.
+- Partner/eslesme islemleri callable Cloud Functions tarafindan dogrulanir; durum paylasimlari 24 saat sonra otomatik olarak pasif gorunur.
+- Tema secimi cihazda, bildirim tercihleri ise cihaz ile kullaniciya ozel `user_private` belgesinde saklanir.
 
 ## Yapilan Degisiklikler
 
 ### Gunun Puani
 
-- Finans karti kaldirildi; solda Partner/Eslesme ile Durumum, sagda Gunun Puani ile Detoks arasinda yatay gecis yapan iki tam boy kart alani kuruldu.
+- Finans karti kaldirildi; solda Partner/Eslesme ile Durumum, sagda Gunun Puani ile Detoks arasinda yatay gecis yapan iki alan tek ortak panelde birlestirildi.
 - Kullanici ruh hali, enerji, ilerleme, kendine zaman ve huzur sorularini 1-10 arasinda puanlar.
 - Bes sorunun esit agirlikli ortalamasi gunun puani olarak hesaplanir.
 - Kullanici puanlamaya ek olarak en fazla 200 karakterlik istege bagli gun notu yazabilir.
 - Kayit tamamlandiginda ana ekrandaki kart tarih, ortalama, kisa gun karsiligi ve varsa not onizlemesini gosterir.
-- Ana ekrandaki Gunun Puani kartinin puan, sayfa gostergesi ve gecmis aksiyonu acik temada siyah, koyu temada kirik beyaz vurgu kullanir; Detoks renkleri degistirilmedi.
+- Ana ekrandaki Gunun Puani ve Detoks alanlarinin deger, sayfa gostergesi ve aksiyonlari acik temada siyah, koyu temada kirik beyaz ortak vurgu kullanir.
 - `PartnerWidget` solda Partner/Eslesme ile Durumum sayfalarini, `DailyCardsWidget` sagda Gunun Puani ile Detoks sayfalarini ayni yatay kaydirma mekanizmasiyla gosterir.
-- Bes soru uzun bir form yerine tek soruluk odakli adimlar halinde gosterilir; ilerleme 1/5 cubuguyla izlenir.
-- Her soruda dokunma ve suruklemeye aninda tepki veren 10 kademeli ozel puan bari, secili puan ve kisa puan karsiligi bulunur; soru gecisleri yumusak kayma/solma animasyonu kullanir.
+- Bes soru uzun bir form yerine tek soruluk odakli adimlar halinde gosterilir; bes soru ve not adimi alti parcali ince ilerleme gostergesiyle izlenir.
+- Her soruda 120px animasyonlu puan halkasi, cam aciklama kapsulu ve dokunma/suruklemeye aninda tepki veren 10 kademeli monokrom slider bulunur; puan gercekten degistiginde hafif haptik geri bildirim verilir.
+- Yeni gun degerlendirmesinde ilk soru ve daha once cevaplanmamis sonraki sorular 5 puanla baslar; slider topu, puan halkasi ve aciklama ilk gorunumde birlikte dolu gelir.
+- Slider altindaki `1`, `5` ve `10` etiketleri topun kullandigi ayni 1-10 koordinat hesabina tasindi; `5` etiketi geometrik merkez yerine gercek `4/9` konumunda top ile dikey hizalanir.
+- Soru karti ile geri/ileri navigasyon grubu birlikte 14px asagi tasindi. 112px Ileri butonunun dar ekranda tasmasini engellemek icin ic dolgusu azaltildi ve metni esnek hale getirildi.
 - Son adimda gunun ortalamasi ve kisa sonucu gosterilir; kullanici istege bagli notunu burada ekler.
-- Alt gezinmede geri aksiyonu sabit ikon butonu olarak kalir; soru adimindaki ileri butonu 132x48 olcusunde saga hizalanir, son kaydetme butonu metne uygun genisler. Vurgular acik temada siyah, koyu temada kirik beyazdir.
+- Degerlendirme ekrani blur ust/alt bar, tek ana cam soru paneli, dairesel puan gostergesi, saydam slider alani ve cam sonuc/not adimiyla Liquid Glass diline tasindi.
+- Soru ve sonuc kartlari ayni ust hizada baslar. Kart ici navigasyon kaldirilarak kartlar kisaltildi; geri kontrolu kartin hemen altindaki satirin solunda, `Ileri` butonu 112x44 olcusunde sagda gosterilir. `Gun kartini olustur/guncelle` butonu geri kontrolunden sonra kalan yatay alani doldurur ve kartin sag kenariyla hizalanir. Sonuc adimindaki sabit blur alt bar kaldirildi.
 - Ayni gunun kaydi karta yeniden basilarak duzenlenebilir.
-- Kayitlar kullanici/guest anahtarina gore `SharedPreferences` icinde JSON olarak tutulur; ileride haftalik veriler hesaplanabilir.
+- Kayitlar kullanici/guest anahtarina gore `SharedPreferences` icinde JSON olarak tutulur; haftalik istatistikler bu kayitlardan cihazda hesaplanir.
 - Ana karttaki gecmis ikonu kayitlari ay bazinda gruplanmis, yeniden eskiye sirali arsiv ekraninda acar.
-- Gecmis gun kartina basildiginda bes soru puani, gun sonucu ve tam not ayri detay ekraninda gosterilir; istatistik, silme ve gecmis gunu duzenleme eklenmedi.
+- Gecmis gun kartina basildiginda bes soru puani, gun sonucu ve tam not ayri detay ekraninda gosterilir; silme ve gecmis gunu duzenleme eklenmedi.
+- Gun karti detayi ve gecmis listesindeki turkuaz vurgu kaldirildi; puan, deger ve ilerleme cizgileri acik temada siyah, koyu temada kirik beyaz ortak vurgu kullanir.
 - Her kayit soru seti surumunu tasir; sorular degistiginde eski gunlerin hangi duzenle puanlandigi korunur.
-- Haftalik istatistik arayuzu henuz eklenmedi. Gosterilecek parametreler urun karari verildikten sonra eklenecek.
+- Degerlendirme ekraninin ust barindaki istatistik ikonu 280ms fade/slide gecisiyle haftalik gorunumu acar.
+- Istatistik ekrani son 7 gunun puan grafigini, haftalik ortalamayi, tamamlanan gun sayisini, bes soru basliginin ayri ortalamasini ve onceki 7 gune gore puan farkini gosterir.
+- Eksik gunler grafikte bos kalir; ortalamalar yalnizca kayit bulunan gunlerden hesaplanir ve onceki hafta verisi yoksa karsilastirma uretilmez.
+- Istatistik ekranina tek parca kayan `Hafta / Takvim` secicisi eklendi; takvim mevcut gunluk puanlari aylik gorunumde sunar ve yeni bir istatistik parametresi uretmez.
+- `Hafta / Takvim` icerik gecisindeki alttan gelme hareketi kaldirildi; iki gorunum ust kenara sabitlenerek 240ms saydamlik ve `0.985 -> 1.0` olcek gecisiyle degisir.
+- Takvim pazartesi baslangicli sabit 6x7 izgara kullanir. Kayitli gunlerin monokrom dolgu yogunlugu gunun puanina gore degisir; gelecek aya gecis kapali tutulur.
+- Koyu temada kayitsiz gunler koyu cam yuzeyde tutulur; kayitli gunler sinirli puan yogunlugu, daha belirgin kenarlik ve buyutulmus gun/puan metniyle ayrilir. Bugun 2px kirik beyaz cerceve kullanir.
+- Kayitli bir takvim gunune dokunuldugunda mevcut `DailyScoreDetailScreen` acilir; bos ve gelecek gunler etkilesimsizdir.
 
 ### Auth Ekrani
 
-- Giriş/Kayit ekrani modernlestirildi.
+- Giriş/Kayit ekrani ortak `AppThemePalette`, Inter tipografi ve monokrom Liquid Glass yuzeylerle yeniden tasarlandi; eski mavi/lacivert vurgu sabitleri kaldirildi.
 - Giriş/Kayit gecisi tek parca kayan segment bara donusturuldu.
+- Form gecisi alttan kayma kullanmadan ustten sabit 240ms fade ve `0.985 -> 1.0` olcek animasyonuyla calisir; kayit alaninin yuksekligi `AnimatedSize` ile yumusak degisir.
+- E-posta, sifre ve ad alanlari 14px koseli yari saydam cam yuzey, monokrom odak cercevesi, Inter metin ve klavye ileri/tamam aksiyonlari kullanir.
 - Google girisi logo yerine buton olarak tasarlandi.
 - Sifre goster/gizle ozelligi eklendi.
 - Sifremi unuttum Firebase password reset akisina baglandi.
-- Gelistirme icin gecici `Şimdilik giriş yapmadan devam et` butonu eklendi.
+- Gelistirme icin gecici girissiz devam aksiyonu uzun metin butonu yerine sag ustteki 42x42 ortak cam kapatma kontrolune tasindi.
+- Auth icerigi yeterli ekran yuksekliginde dikey merkezlenir, klavye veya kisa ekranlarda kaydirilir. Logo 124px yukseklige, segment ve ana butonlar 54px yukseklige buyutuldu; cam kapatma kontrolu logo basliginin sag ustune bindirilerek ayri satir boslugu kaldirildi.
 
-### Ana Sayfa Haber Kartlari
+### Ana Sayfa Haber Listesi
 
-- Haber kartlari modern kart tasarimina tasindi.
+- Haberler ayri kart kabugu, dolgu ve golge yerine sayfa zeminindeki editoryal liste satirlari olarak gosterilir.
 - Kategori ve kaynak etiketleri seffaf zemin, ince notr cerceve ve tema uyumlu yazi rengiyle gosterilir.
 - `createdAt` varsa tarih gosteriliyor, yoksa gizleniyor.
-- Kartlar artik normal tiklama ile detay acar.
+- Satirin tamami dokunmayla mevcut detay dialogunu acar ve tema uyumlu hafif basma tepkisi verir.
 - `detail` alani bossa detay ekraninda `summary` gosterilir.
-- Kartlar ile haber listesi arasindaki bosluk azaltildi.
-- Ana sayfada artik kullanilmayan eski haber karti ve eski detay modal kodlari temizlendi; modern haber karti ve mevcut detay dialogu korunur.
+- Baslik ve en fazla uc satirlik ozet korunur; gereksiz `Detayi oku` satiri kaldirilir ve haberler `1px` notr cizgiyle ayrilir.
+- Sunum degisikligi Firestore alanlarini, yayin filtresini, RSS/admin akislarini ve detay acma davranisini degistirmez.
+- Okunmamis haberler metadata satirindaki kucuk notr nokta ve daha guclu baslik agirligiyla ayrilir; haber acildiginda nokta aninda kalkar ve baslik daha sakin tona gecer.
+- Okundu bilgisi Firestore haber belgesine yazilmaz. Kullanici/guest bazinda `SharedPreferences` icinde tutulur ve yerel listenin sinirsiz buyumemesi icin son 500 haber kimligi korunur.
+- Haberler 12 gorunur kayitlik cursor gruplariyla yuklenir; ayni koleksiyondaki taslak sayfalari kullaniciya buton bastirmadan otomatik atlanir. Kullanici listenin sonuna yaklastiginda sonraki grup otomatik alinir; normal durumda manuel yukleme butonu gosterilmez ve ag hatasinda Firestore cache kullanilir.
 
 - Haber akisi RSS/admin onay akisina hazirlik icin yayin filtresi kullanir: `published: false`, `status: draft` ve `status: rejected` mobilde gosterilmez.
 - Eski manuel haberlerde `published` veya `status` yoksa haber gorunmeye devam eder; mevcut admin veri girisi bozulmaz.
@@ -80,7 +98,10 @@ Ozet App, Firebase tabanli bir Flutter haber/ozet uygulamasidir.
 
 - Auth ekranindan girissiz devam edildiginde ana sayfa acilir.
 - Kullanici yoksa partner alani bos kalmak yerine ornek detoks karti gosterir.
-- Ana sayfadaki detoks, partner ve durum kartlari ortak kart kabugu, sakin golge, mini ikon alanlari ve kompakt durum hiyerarsisiyle yenilendi.
+- Ana sayfadaki Partner/Durumum ve Gunun Puani/Detoks alanlari haber akistan farkli tek ortak yuzeyde, ortadaki ince dikey cizgiyle ayrilir; ayri kart kabuklari ve golgeleri kullanilmaz.
+- Ortak panel 18px blur, saydam beyaz tint, capraz yansima ve ust kenar isigi kullanir. Ince dis kontur, yakin temas golgesi, genis ortam golgesi ve alttaki 6px nefes alani karti rengini degistirmeden yuzeyden ayirir; kartin kendi yuksekligi 158px olarak korunur.
+- Eslesme yok, Gunun Puani ve Detoks alanlarinda yalnizca kucuk bolum etiketi, ana durum/deger ve gerekli kisa eylem metni tutulur; buyuk dekoratif lens ve aciklama kalabaligi kullanilmaz.
+- Yatay ayiricilar kaldirildi; tum yari panel dokunulabilir kalirken iki konumlu sayfa gostergesi, kisa eylem ve sade chevron tek satirlik kompakt footer icinde hizalanir.
 - Partner durumlari hizli his secenekleriyle gelistirildi; kullanici ayrica partner kartinda gorunecek 80 karakterlik mini not birakabilir.
 - Partnerine cizim gonderme ozelliginin ilk surumu eklendi; cizimler Firestore'da normalize stroke listesi olarak tutulur ve partner kartinda onizleme olarak gosterilir.
 - Durum guncelleme penceresine `Paylastiklarin` bolumu eklendi; mini not ve cizim varsa burada kart olarak gorunur ve kendi silme butonlariyla temizlenir.
@@ -98,9 +119,10 @@ Ozet App, Firebase tabanli bir Flutter haber/ozet uygulamasidir.
 - Ana sayfadaki Partner/Eslesme ve Durumum kartlarinin renkli UI vurgulari acik temada siyah, koyu temada kirik beyaz olarak guncellendi; kullanicinin cizim renkleri korundu.
 - Ana partner karti tek blur katmanli Liquid Glass kabuga tasindi; gri dolgu yuzeyleri kaldirildi, cizim beyaz/seffaf kagit caminda gosterildi, durum satiri kutusuz hale getirildi ve kalp ikonu notr partner ikonuyla degistirildi.
 - Partner karti ve yatay cizim onizlemeleri, kart boyutunu degistirmeden cizgi sinirlarini hesaplayan oran korumali akilli sigdirma kullanir; bos alanlar azaltildigi icin cizim basik gorunmez.
-- Partner kartinin ana yuzeyi, saydam renk karisimi yerine ana ekrandan gelen `kartRengi` degerini kullanir; boylece Gunun Puani kartiyla acik ve koyu temada ayni renkte gorunur.
+- Partner ve Gunun Puani/Detoks alanlari `embedded` modunda ana sayfanin ortak panel yuzeyini kullanir; kendi dis zemin, kenarlik ve golgelerini uretmez.
 - Partner not paylastiysa kart basliginin yaninda kucuk bir bildirim noktasi gosterilir.
 - Partner kartina basilinca partnerin son 3 durum/not/cizim paylasimi detay panelinde listelenir.
+- Durum paylasimlarina `statusExpiresAt` yazilir; 24 saati gecen durumlar eski kayitlarda `lastUpdated` fallback'iyle birlikte notr duruma doner.
 
 ### Ayarlar Ekrani
 
@@ -127,15 +149,17 @@ Ozet App, Firebase tabanli bir Flutter haber/ozet uygulamasidir.
 - Tema segmentindeki ikonlar kaldirildi; `Acik`/`Koyu` metinleri ortalandi ve gecis animasyonu yumusatildi.
 - Profil karti daha kompakt hale getirildi; uyelik durumu pill olarak gosterilir, detay ve giris/cikis aksiyonlari sade satirlar halindedir.
 - `Cikis Yap` profil kartindan kaldirildi; Ayarlar sayfasinin en altina tam genislikte, dolgulu ve cerceveli belirgin bir buton olarak tasindi.
-- Bildirim karti aciklamali uc kompakt satirla yeniden duzenlendi; aktif sayisi pill'i gereksiz tekrar oldugu icin kaldirildi.
+- Bildirim karti `Gunun Ozeti`, `Aksam Hatirlatmasi` ve `Partner Paylasimlari` olarak uc anlasilir tercihe indirildi; konu abonelikleri ve kullaniciya ozel tercihler birlikte guncellenir.
 - Ayarlar sayfasindaki ana kartlar arasindaki dikey bosluk 16px'ten 8px'e indirildi; kartlarin ic bosluklari korunur.
+- Ana sayfa, Ayarlar ve Gunun Puani koyu tema zemini `#0D0D0E`; kart/cam yuzeyleri `#1C1C1E` ve guclu kontrol yuzeyleri `#2C2C2E` ortak paletine baglandi.
 
 ### Uygulama Mesajlari
 
-- Hata, basari ve bilgi mesajlari icin `AppFeedback` yardimci sinifi eklendi.
+- Hata, basari ve bilgi mesajlari icin Inter tipografili `AppFeedback` yardimci sinifi eklendi.
 - Auth ve Ayarlar ekranlarindaki snackbar mesajlari uygulamanin acik/koyu tema diline uygun kart gorunumune tasindi.
 - Eslesmeyi bitirme onay dialogu tema uyumlu, yuvarlak koseli ve daha sakin bir tasarima guncellendi.
 - Global `SnackBarThemeData` eklendi; ileride duz `SnackBar` kullanilsa bile genel tema dili korunur.
+- Tekrar denenebilir hatalarda `AppFeedback` icinde `Tekrar dene` aksiyonu gosterilir; haber akisinda ilk yukleme ve sayfalama hatalari satir ici tekrar deneme durumu kullanir.
 
 ## Onemli Classlar
 
@@ -143,13 +167,17 @@ Ozet App, Firebase tabanli bir Flutter haber/ozet uygulamasidir.
 
 Uygulamanin MaterialApp, tema ve genel baslangic yapisini kurar. `themeNotifier` ile acik/koyu tema degisimini dinler.
 
+### `AppThemePalette` - `lib/theme/app_theme_palette.dart`
+
+Ana sayfa, Ayarlar ve Gunun Puani ekranlarinin ortak koyu zemin, yuzey, guclu yuzey, metin ve ikincil metin sabitlerini tutar; ekranlar arasinda ton farki olusmasini engeller.
+
 ### `SplashScreen` - `lib/screens/splash_screen.dart`
 
 Uygulama acilis ekranidir. Firebase oturumu varsa `HomeScreen`, yoksa `AuthScreen` acar.
 
 ### `AuthScreen` - `lib/screens/auth_screen.dart`
 
-Giris/kayit ekranidir. E-posta/sifre, Google girisi, sifre sifirlama ve gecici girissiz devam akislarini icerir.
+Giris/kayit ekranidir. E-posta/sifre, Google girisi, sifre sifirlama ve gecici girissiz devam akislarini icerir. Giris basligi ilk ve tekrar gelen kullanicilara birlikte uyan notr `Hos geldin` metnini kullanir.
 
 ### `NewsWebViewScreen` - `lib/screens/news_webview_screen.dart`
 
@@ -157,7 +185,23 @@ RSS/manual haber kaynak linklerini uygulama icinde WebView ile acar; ustte haber
 
 ### `HomeScreen` - `lib/screens/home_screen.dart`
 
-Ana haber akisini, Gunun Puani kartini, partner/detoks alanini ve haber detay dialogunu yonetir.
+Ana haber akisini, Gunun Puani kartini, partner/detoks alanini ve haber detay dialogunu yonetir. Ana sayfa ust bari acik/koyu temaya uyarlanan kompakt Liquid Glass yuzey, dairesel ayarlar kontrolu ve bagimsiz merkezlenen marka alani kullanir.
+
+### `_buildNewsFeed` ve `_buildNewsListItem` - `lib/screens/home_screen.dart`
+
+Yayindaki Firestore haberlerini filtreleyip `ListView.separated` ile editoryal satirlara donusturur; etiket, tarih, baslik, ozet, erisilebilirlik etiketi ve mevcut detay dialogu gecisini yonetir.
+
+### `_buildHomeTopBar`, `_buildHomeBrand`, `_openSettings` - `lib/screens/home_screen.dart`
+
+Ana sayfanin kaydirmaya gore saydamligi degisen Liquid Glass ust barini, logo olcegini ve dokunsal geri bildirimli ayarlar gecisini yonetir. Ortak cam bileseni yuksek saydamlik, capraz yansima ve cevresel renk halkasi kullanir; `7` sigma blur yalnizca arka plan ayrimi icin yardimci katmandir. Logo ile slogan arasinda ayirici cizgi kullanilmaz.
+
+### `LiquidGlassSliverAppBar` ve `LiquidGlassIconButton` - `lib/widgets/liquid_glass_app_bar.dart`
+
+Ana sayfa ve ayarlar ekraninda ortak kullanilan saydam ust bari, cizgisiz yansima yuzeyini ve dokunsal geri bildirimli beyaz cam ikon lensini olusturur. Ayarlar ve geri kontrolleri 42x42 beyaz cam kabuk, 40x40 merkezlenmis dokunma alani ve optik olarak dengelenmis ikon boyutlari kullanir.
+
+### `HomePanelIcon`, `HomePanelPageIndicator` ve `HomePanelFooter` - `lib/widgets/home_panel_controls.dart`
+
+Ana sayfadaki Partner ve Gunun Puani alanlarinda kullanilan kucuk cam ikonu, iki konumlu sayfa gostergesini ve kisa eylem ile sade chevron iceren kompakt footer yerlesimini olusturur. Dar yari panelde metin tasmasini engeller.
 
 ### `DailyScoreEntry` - `lib/models/daily_score_entry.dart`
 
@@ -167,9 +211,45 @@ Bes soru puanini, gun notunu, tarih anahtarini, gunluk ortalamayi ve kisa sonuc 
 
 Gunluk puan kayitlarini oturum acmis kullanici veya misafir icin ayri cihaz anahtarlarinda JSON olarak saklar; tum gecerli kayitlari bozuk verileri atlayarak yeniden eskiye sirali okuyabilir.
 
+### `NewsReadStorage` - `lib/services/news_read_storage.dart`
+
+Firestore haber verisini degistirmeden okunan dokuman kimliklerini kullanici/guest bazinda cihazda saklar; tekrarli kimlikleri temizler ve son 500 kayitla sinirlar.
+
+### `DailyScoreStatistics`, `DailyScoreDayPoint` ve `DailyScoreCalendarMonth` - `lib/models/daily_score_statistics.dart`
+
+Son 7 takvim gunu ile onceki 7 gunu ayirir; gunluk grafik noktalarini, haftalik ortalamayi, tamamlanan gun sayisini, soru ortalamalarini ve iki hafta arasindaki puan farkini saf ve test edilebilir bicimde hesaplar. `DailyScoreCalendarMonth`, secilen ayin gun sayisini, pazartesi bazli baslangic boslugunu ve gun-kayit eslesmesini uretir.
+
+### `NewsFeedService` ve `PaginatedNewsFeed`
+
+Firestore haberlerini `createdAt` sirasiyla 12 gorunur kayitlik cursor gruplarinda getirir. Sunucu istegi basarisizsa yerel cache'e duser; widget sona yaklasmayi dis `ScrollController` ile algilar, otomatik yukleme, tekrar deneme ve konumu bozmayan sessiz yenilemeyi yonetir.
+
+### `NotificationPreferencesService`
+
+Gunun ozeti ve aksam hatirlatmasi icin FCM topic aboneliklerini, partner bildirim tercihini ve `user_private/{uid}` altindaki uzak tercih kopyasini yonetir; eski `aksamOzeti` anahtarini yeni modele tasir.
+
+### `PartnerStatusView`
+
+Partner durumunun halen aktif olup olmadigini `statusExpiresAt`, eski kayitlarda ise `lastUpdated + 24 saat` uzerinden hesaplar ve suresi dolmus durumlari notr sunuma cevirir.
+
 ### `DailyScoreScreen` - `lib/screens/daily_score_screen.dart`
 
-Bes soruyu tek tek sunan ilerlemeli akisi, dogrudan dokunma/surukleme algilayan 10 kademeli puan barini, sonuc/not adimini ve gun karti olusturma/guncelleme islemini yonetir.
+Bes soruyu tek tek sunan ilerlemeli akisi, dogrudan dokunma/surukleme algilayan 10 kademeli puan barini, Liquid Glass sonuc/not adimini ve gun karti olusturma/guncelleme islemini yonetir. `_openStatistics`, ust bardaki grafik kontrolunden istatistik ekranina haptik geri bildirimli fade/slide gecisini kurar.
+
+### `_GlassSurface` ve `_ScorePalette` - `lib/screens/daily_score_screen.dart`
+
+Degerlendirme ekraninin blur cam panel kabugunu ve acik/koyu temadaki monokrom yuzey, metin, kenarlik, kontrol ve vurgu renklerini tek noktadan yonetir.
+
+### `DailyScoreStatisticsScreen` - `lib/screens/daily_score_statistics_screen.dart`
+
+Yerel gunluk kayitlari yukler, yenileme/hata durumlarini yonetir ve onaylanan bes haftalik metrigi Gunun Puani sayfasiyla ayni Inter tipografi, monokrom palet ve 24px Liquid Glass kartlarla sunar. `_selectView` haftalik/takvim gecisini, `_moveMonth` gelecek ay sinirli ay gezinmesini, `_openEntry` ise takvimden gun detayina gecisi yonetir.
+
+### `DailyScoreStatisticsViewControl` ve `DailyScoreCalendarView` - `lib/widgets/daily_score_calendar_view.dart`
+
+Kayan monokrom `Hafta / Takvim` secicisini ve aylik 42 hucreli Liquid Glass takvimi olusturur. `_CalendarDayCell` bugunu vurgular, puan yogunlugunu siyah/beyaz dolgu ile ifade eder ve yalnizca gecerli kaydi bulunan gunleri etkilesimli yapar.
+
+### `_WeeklyChartPainter`, `_StatisticsGlassSurface`, `_StatisticsPalette`
+
+Yedi gunluk cizgi/alan grafigini kutuphane bagimliligi olmadan cizer; istatistik kartlarinin cam kabugunu ve acik/koyu tema renklerini tek yerde yonetir.
 
 ### `DailyScoreHistoryScreen` - `lib/screens/daily_score_history_screen.dart`
 
@@ -181,14 +261,14 @@ Tek bir gunun tarihini, ortalamasini, sonuc etiketini, bes soru puanini ve tam n
 
 ### `DailyCardsWidget` - `lib/widgets/daily_cards_widget.dart`
 
-Ana sayfanin sag kartinda Gunun Puani ve Detoks sayfalarini iki nokta gostergeli yatay `PageView` ile gosterir; puanlama ve gecmis ekranlarini ayri aksiyonlarla acar, yayindaki haberlerden detoks suresini hesaplar.
+Ana sayfanin sag alaninda Gunun Puani ve Detoks sayfalarini iki nokta gostergeli yatay `PageView` ile gosterir; `embedded` modunda dis kart kabugunu ortak panele birakir. Bos durumda yalnizca degerlendirme cagrisi, kayitli durumda puan ve kisa sonuc, Detoks sayfasinda kazanilan sure ile haber sayisi gosterilir.
 ### `SettingsScreen` - `lib/screens/settings_screen.dart`
 
-Profil, tema, bildirim tercihleri ve partner eslesme ayarlarini; responsive genislik, sabit cam ust bar ve ortak monokrom kart sistemiyle yonetir.
+Profil, tema, bildirim tercihleri ve partner eslesme ayarlarini; responsive genislik, ortak Liquid Glass ust bar ve monokrom kart sistemiyle yonetir.
 
 ### `_SettingsPalette` - `lib/screens/settings_screen.dart`
 
-Ayarlar ekraninin acik/koyu tema yuzeylerini, metinlerini, kenarliklarini, vurgu ve tehlike renklerini tek noktadan uretir.
+Ayarlar ekraninin acik/koyu tema yuzeylerini, metinlerini, kenarliklarini, vurgu ve tehlike renklerini tek noktadan uretir; koyu temel degerleri `AppThemePalette` uzerinden alir.
 
 ### `_NicknameEditorSheet` - `lib/screens/settings_screen.dart`
 
@@ -196,15 +276,11 @@ Partner takma adini canli kart onizlemesiyle duzenleyen, klavye bosluguna uyum s
 
 ### `PartnerWidget` - `lib/widgets/partner_widget.dart`
 
-Partnerin paylasim karti ile kullanicinin kendi Durumum kartini yatay gecisle gosterir. Girissiz kullanimda eslesme/giris yonlendirmesi verir.
-
-### `WeatherWidget` - `lib/widgets/weather_widget.dart`
-
-Konum izni ve OpenWeather API ile hava durumu gostermek icin hazirlanmis widgettir. Su an ana ekranda aktif kullanilmiyor.
+Partnerin paylasim alani ile kullanicinin kendi Durumum alanini yatay gecisle gosterir. `embedded` modunda ortak ana panel icin dis kart kabugunu kapatir; bos eslesme yalnizca durum ve `Eslestir`, Durumum sayfasi mevcut durum ve `Guncelle` eylemini gosterir. Eslesmis partnerin cizim onizlemesi korunur; durum satiri kompakt footer icinde kalir.
 
 ### `AppFeedback` - `lib/widgets/app_feedback.dart`
 
-Uygulama genelindeki hata, basari ve bilgi snackbar mesajlarini tema uyumlu tek bir kart stilinde gosterir.
+Uygulama genelindeki hata, basari ve bilgi snackbar mesajlarini Inter tipografili, tema uyumlu tek bir kart stilinde gosterir; gerektiginde tekrar deneme aksiyonu sunar.
 
 ## Onemli Fonksiyonlar
 
@@ -218,13 +294,15 @@ Uygulama genelindeki hata, basari ve bilgi snackbar mesajlarini tema uyumlu tek 
 
 ### Home
 
-- `_saveDeviceToken`: FCM token bilgisini kullanicinin Firestore dokumanina yazar.
+- `_saveDeviceToken`: FCM token bilgisini yalnizca kullanicinin okuyabildigi `user_private/{uid}` belgesine yazar ve token yenilenmesini dinler.
 - `_loadTodayScore`: Bugunun daha once kaydedilmis puanini cihazdan yukler.
 - `_openDailyScore`: Puanlama ekranini acar, donen gun kaydini saklar ve ana karti yeniler.
 - `_openDailyScoreHistory`: Aylik gecmis kayit listesini uygulama icinde acar.
-- `_buildLiveWidgets`: Solda `PartnerWidget`, sagda Gunun Puani/Detoks arasinda kayan `DailyCardsWidget` kartini gosterir.
-- `_buildNewsFeed`: Firestore `news` koleksiyonunu dinleyip yalnizca mobilde gorunebilir haber listesini olusturur.
-- `_buildModernNewsCard`: Admin panelinden gelen mevcut haber alanlarini modern kart tasariminda gosterir.
+- `_buildLiveWidgets`: `PartnerWidget` ve `DailyCardsWidget` icin 18px blur, dengeli beyaz tint, yansima, kenar isigi ve merkezdeki dikey ayraci kullanan ortak Liquid Glass paneli olusturur.
+- `_buildNewsFeed`: `PaginatedNewsFeed` ile yalnizca mobilde gorunebilir haberleri sayfali/cache destekli yukler; satirlari acik ve koyu temada hafif guclendirilmis 1px ayiraclarla boler.
+- `_buildNewsListItem`: Admin panelinden gelen mevcut haber alanlarini kart kabugu olmadan dokunulabilir editoryal liste satirinda gosterir.
+- `_loadReadNewsIds`: Aktif kullanici veya guest icin cihazda saklanan okundu kimliklerini ana sayfa durumuna yukler.
+- `_markNewsAsRead`: Haber detayini acarken gorsel durumu aninda yeniler ve dokuman kimligini `NewsReadStorage` ile kalici hale getirir.
 - `_isVisibleNews`: RSS taslaklarini ve reddedilen haberleri mobil akistan filtreler.
 - `_textField`: Firestore metin alanlarini bosluklardan arindirarak guvenli okur.
 - `_buildNewsMetaChip`: Kategori ve kaynak bilgisini seffaf zeminli, ince cerceveli tema uyumlu kompakt etiket olarak gosterir.
@@ -234,6 +312,12 @@ Uygulama genelindeki hata, basari ve bilgi snackbar mesajlarini tema uyumlu tek 
 
 ### Daily Score
 
+- `_selectScore`: Sliderdan gelen 1-10 degerini aktif soruya gecikmesiz yazar ve deger degistiginde secim haptigi verir.
+- `_buildProgress`: Bes soru ile not adimini alti parcali animasyonlu ilerleme satirinda gosterir.
+- `_buildQuestionStep`: Aktif soruyu, dairesel puan gostergesini ve 10 kademeli slideri tek Liquid Glass panelde olusturur.
+- `_buildNoteStep`: Gun ortalamasi, sonuc etiketi ve istege bagli 200 karakterlik not alanini son adimda gosterir.
+- `_buildQuestionNavigation`: Soru adimlarinda geri ve ileri kontrollerini cam kartin disindaki alt navigasyon satirinda konumlandirir.
+- `_buildActions`: Sonuc/not adimindaki geri ve kaydetme eylemlerini klavye guvenli blur alt barda yonetir.
 - `DailyScoreStorage.getAll`: Gecerli kayitlari ayristirir, bozuk olanlari atlar ve tarih azalan sirada dondurur.
 - `_reload`: Gecmis ekraninin yerel kayit listesini yeniden yukler.
 - `_openEntry`: Secilen gun kaydini `DailyScoreDetailScreen` icinde acar.
@@ -244,11 +328,11 @@ Uygulama genelindeki hata, basari ve bilgi snackbar mesajlarini tema uyumlu tek 
 - `_loadSettings`: Bildirim tercihlerini cihazdan okur.
 - `_saveNotificationSetting`: Secilen bildirim tercihini ekranda aninda gunceller ve `SharedPreferences` icine kaydeder.
 - `_updateTheme`: Tema tercihini kaydeder ve uygulamaya uygular.
-- `_generatePairCode`: Kullanici icin eslesme kodu olusturur.
+- `_generatePairCode`: `createPairCode` callable function'i ile sunucuda benzersiz eslesme kodu olusturur.
 - `_copyPairCode`: Uretilen eslesme kodunu panoya kopyalar ve tema uyumlu basari mesaji gosterir.
-- `_enterPairCode`: Girilen kodla partner eslesmesi yapar.
+- `_enterPairCode`: `pairWithCode` callable function'i ile kodu sunucuda dogrulatip iki kullaniciyi transaction icinde eslestirir.
 - `_confirmUnpair`: Eslesmeyi bitirmeden once tema uyumlu onay dialogu acar.
-- `_unpairPartner`: Iki kullanici arasindaki eslesme verilerini Firestore uzerinden temizler.
+- `_unpairPartner`: `endPairing` callable function'i ile iki kullanici arasindaki eslesmeyi transaction icinde temizler.
 - `_buildProfileCard`: Profil/uyelik bilgisini monokrom avatarla kompakt bicimde gosterir.
 - `_buildSignOutButton`: Oturum acikken Ayarlar sayfasinin en altinda tam genislikte, tehlike rengiyle belirginlestirilmis cikis butonunu olusturur.
 - `_buildSettingsCard`: Ayarlar alt bolumleri icin ortak baslik, aciklama, yuzey, kenarlik ve golge kabugu saglar.
@@ -281,6 +365,10 @@ Uygulama genelindeki hata, basari ve bilgi snackbar mesajlarini tema uyumlu tek 
 - discoverFeedUrls: HTML alternate linkleri ve feed benzeri anchor URLlerinden RSS/Atom adaylarini cikarir.
 - parseFeed, parseRssItem, parseAtomEntry: Ek paket kullanmadan RSS/Atom XML iceriginden temel haber alanlarini okur.
 - `stableId`: Kaynak ve haber URL/guid bilgisinden tekrar uretilebilir Firestore dokuman id'si olusturur.
+- `createPairCode`, `pairWithCode`, `endPairing`: Kod uretme, karsilikli eslestirme ve eslesmeyi bitirme islemlerini sunucu transaction'lariyla yapar.
+- `notifyPartner`: Karsilikli eslesmeyi ve alicinin tercihini dogrular, tokeni `user_private` belgesinden okuyup Admin SDK ile bildirim gonderir.
+- `sendMorningDigest` ve `sendEveningCheckIn`: Europe/Istanbul saat diliminde ilgili topic abonelerine zamanlanmis bildirim yollar.
+- `sendAdminBroadcast`: Yalnizca admin yetkili kullanicinin `all` topic'ine panelden bildirim gondermesini saglar.
 ### Partner
 
 - `_buildDetoxPage`: Haber sayisina gore kazanilan dakika ve ozet sayisini gosterir.
@@ -296,7 +384,7 @@ Uygulama genelindeki hata, basari ve bilgi snackbar mesajlarini tema uyumlu tek 
 - `_buildSharedItemsSection`: Kullanicinin aktif mini not ve cizimini kompakt kartlarda gosterir; onayli silme islemlerini yonetir.
 - `_buildSharedSketchCard`: Aktif cizimi ayri baslik/silme satiri ve oran korumali buyuk onizleme ile gosterir; onizlemeye dokunuldugunda detay panelini acar.
 - `_statusButton`: Hazir durum seceneklerini yatay, ince cerceveli ve dokunma geri bildirimli butonlar olarak uretir.
-- `_updateStatus`: Kullanicinin `statusIcon`, `statusText` ve `lastUpdated` alanlarini Firestore'a yazar.
+- `_updateStatus`: Kullanicinin `statusIcon`, `statusText`, `lastUpdated` ve 24 saatlik `statusExpiresAt` alanlarini Firestore'a yazar.
 - `_sendPartnerNote`: Partner kartinda gorunecek `partnerNote` bilgisini Firestore'a yazar ve partner bildirimini tetikler.
 - `_deletePartnerNote`: Gonderilen mini not alanlarini Firestore dokumanindan temizler.
 - `_showSketchComposer`: Tek blur katmanli Liquid Glass cizim panelini acar, cizim gonderme sonucunu ve tema uyumlu geri bildirimi yonetir.
@@ -308,7 +396,7 @@ Uygulama genelindeki hata, basari ve bilgi snackbar mesajlarini tema uyumlu tek 
 - _deletePartnerShareType: Mini not veya cizim silindiginde ilgili tipteki gecmis paylasim kayitlarini temizler.
 - _showPartnerSharesSheet: Partner kartina basilinca partnerin son paylasimlarini detay panelinde gosterir.
 - _partnerSharesFromData: Yeni partnerShares listesini okur; eski kullanicilar icin mevcut son durum/not/cizim alanlarindan fallback uretir.
-- `_notifyPartner`: Partnerin cihaz tokenina bildirim gonderir.
+- `_notifyPartner`: `notifyPartner` callable function'ini cagirir; backend eslesmeyi ve partner bildirim tercihini dogruladiktan sonra Admin SDK ile bildirim gonderir.
 
 ## Veri Modeli Notlari
 
@@ -335,6 +423,8 @@ news/{docId}
 
 `createdAt` veya `publishedAt` yoksa tarih gosterilmez. `detail` yoksa detay dialogunda `summary` kullanilir.
 Mobil akista gorunurluk kurali: `published: true` veya `status: published` gorunur; `published: false`, `status: draft` ve `status: rejected` gizlenir. Eski manuel kayitlarda bu alanlar yoksa haber gorunur kalir.
+Okundu kimlikleri Firestore modeline eklenmez; cihazda `news_read_ids_v1_{uid|guest}` anahtariyla saklanir.
+Partner durumuna `statusExpiresAt` eklenir; hassas FCM tokeni ve bildirim tercihleri `user_private/{uid}` belgesinde tutulur. `pair_codes/{code}` belgelerine mobil istemci dogrudan erisemez.
 
 RSS kaynaklari icin kullanilan alanlar:
 
@@ -385,6 +475,14 @@ users/{uid}
 `partnerSketch`, cizimi yapan kullanicinin dokumaninda tutulur; eslesilen kisi partner kartinda kucuk onizleme olarak gorur.
 
 partnerShares, durum/not/cizim paylasimlarinin son 3 kaydini tutar; ana kart son cizimi, detay paneli ise bu sinirli gecmisi kullanir.
+## Guvenlik, Cache ve Hata Izleme
+
+- Firestore mobil cache'i 40 MB sinirla etkinlestirildi; haber servisi ag hatasinda acikca cache kaynagina duser.
+- `firestore.rules`, eslesme alanlarini istemci yazimina kapatir; ozel token/tercih belgelerini yalnizca sahibine acar ve admin koleksiyonlarini yetkiyle sinirlar.
+- Android Crashlytics Gradle eklentisi eklendi; release modunda Flutter framework ve platform hatalari Firebase Crashlytics'e fatal hata olarak kaydedilir.
+- Firebase Android SDK metadata uyumu icin Kotlin Gradle eklentisi `2.3.20` surumune ve yeni `compilerOptions` DSL'ine tasindi. Pub cache ile proje farkli Windows suruculerinde oldugu icin bozuk Kotlin cache yollarini onlemek uzere incremental Kotlin derlemesi kapatildi.
+- Client icindeki eski FCM server key ve kullanilmayan OpenWeather anahtari/konum izinleri kaldirildi. Admin ve partner bildirimleri backend uzerinden gonderilir.
+
 ## AI Ozetleme Akisi
 
 - Admin panelde taslak haber kartlarina `AI Ozetle` / `AI Yenile` aksiyonu eklendi.
@@ -432,5 +530,5 @@ partnerShares, durum/not/cizim paylasimlarinin son 3 kaydini tutar; ana kart son
 - Eski kullanilmayan haber karti fonksiyonunu temizlemek.
 - Ayarlar ekranini cihazda gorsel olarak test edip spacing/overflow duzeltmeleri yapmak.
 - Haftalik Gunun Puani ekraninda gosterilecek istatistikleri urun karariyla belirlemek.
-- FCM server key ve OpenWeather API key gibi client icindeki gizli bilgileri backend tarafina tasimak.
+- Functions, Firestore rules ve hosting'i birlikte yayinlayip gercek cihazda eslesme, zamanlanmis bildirim ve Crashlytics kaydini dogrulamak.
 - Genel lint uyarilarini kademeli temizlemek.

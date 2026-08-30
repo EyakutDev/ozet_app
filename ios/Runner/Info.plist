@@ -44,10 +44,6 @@
 	<key>CADisableMinimumFrameDurationOnPhone</key>
 	<true/>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
-	<key>NSLocationWhenInUseUsageDescription</key>
-    <string>Hava durumu tahmini için mevcut konumunuz gereklidir.</string>
-    <key>NSLocationAlwaysUsageDescription</key>
-    <string>Hava durumu tahmini için konumunuz gereklidir.</Bstring>
 	<true/>
 </dict>
 </plist>
