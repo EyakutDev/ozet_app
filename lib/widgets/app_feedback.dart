@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:ozet_app/core/errors/app_failure.dart';
 
 enum AppFeedbackType { info, success, error }
 
@@ -93,5 +94,32 @@ class AppFeedback {
           ),
         ),
       );
+  }
+
+  static void showFailure(
+    BuildContext context,
+    AppFailure failure, {
+    VoidCallback? onRetry,
+    VoidCallback? onSignIn,
+  }) {
+    final action = switch (failure.recoveryAction) {
+      AppRecoveryAction.retry when onRetry != null => (
+        label: 'Tekrar dene',
+        callback: onRetry,
+      ),
+      AppRecoveryAction.signIn when onSignIn != null => (
+        label: 'Giriş yap',
+        callback: onSignIn,
+      ),
+      _ => null,
+    };
+
+    show(
+      context,
+      failure.userMessage,
+      type: AppFeedbackType.error,
+      actionLabel: action?.label,
+      onAction: action?.callback,
+    );
   }
 }

@@ -11,13 +11,91 @@ service cloud.firestore {
 
     function isAdmin() {
       return signedIn()
-        && request.auth.token.email != null
+        && 'email' in request.auth.token
+        && request.auth.token.email is string
         && exists(/databases/$(database)/documents/admins/$(request.auth.token.email));
+    }
+
+    function validOptionalString(data, field, maxLength) {
+      return !(field in data)
+        || (data[field] is string && data[field].size() <= maxLength);
+    }
+
+    function validOptionalTimestamp(data, field) {
+      return !(field in data) || data[field] is timestamp;
+    }
+
+    function validPartnerSketch(data) {
+      return !('partnerSketch' in data)
+        || (data.partnerSketch is map
+          && data.partnerSketch.keys().hasOnly(['strokes', 'updatedAt'])
+          && data.partnerSketch.strokes is list
+          && data.partnerSketch.strokes.size() <= 80
+          && data.partnerSketch.updatedAt is timestamp);
+    }
+
+    function validUserProfile(data) {
+      return validOptionalString(data, 'displayName', 50)
+        && validOptionalString(data, 'partnerNickname', 30)
+        && validOptionalString(data, 'statusIcon', 32)
+        && validOptionalString(data, 'statusText', 120)
+        && validOptionalString(data, 'partnerNote', 80)
+        && validOptionalString(data, 'pairedWith', 128)
+        && validOptionalString(data, 'pairCode', 6)
+        && validOptionalTimestamp(data, 'lastUpdated')
+        && validOptionalTimestamp(data, 'statusExpiresAt')
+        && validOptionalTimestamp(data, 'partnerNoteUpdatedAt')
+        && (!('partnerShares' in data)
+          || (data.partnerShares is list && data.partnerShares.size() <= 3))
+        && validPartnerSketch(data);
+    }
+
+    function validNotificationPreferences(data) {
+      return data is map
+        && data.keys().hasOnly([
+          'morningDigest',
+          'eveningCheckIn',
+          'partnerUpdates'
+        ])
+        && (!('morningDigest' in data) || data.morningDigest is bool)
+        && (!('eveningCheckIn' in data) || data.eveningCheckIn is bool)
+        && (!('partnerUpdates' in data) || data.partnerUpdates is bool);
+    }
+
+    function validPrivateProfile(data) {
+      return validOptionalString(data, 'fcmToken', 4096)
+        && validOptionalTimestamp(data, 'tokenUpdatedAt')
+        && validOptionalTimestamp(data, 'updatedAt')
+        && (!('notificationPreferences' in data)
+          || validNotificationPreferences(data.notificationPreferences));
+    }
+
+    function validAdminActivity(data) {
+      return data.keys().hasOnly([
+          'type',
+          'scope',
+          'count',
+          'actorUid',
+          'createdAt'
+        ])
+        && data.type == 'news_deleted'
+        && (data.scope == 'draft' || data.scope == 'live')
+        && data.count is int
+        && data.count > 0
+        && data.count <= 400
+        && data.actorUid == request.auth.uid
+        && data.createdAt is timestamp;
     }
 
     match /admins/{adminEmail} {
       allow read: if isAdmin();
       allow write: if false;
+    }
+
+    match /admin_activity/{docId} {
+      allow read: if isAdmin();
+      allow create: if isAdmin() && validAdminActivity(request.resource.data);
+      allow update, delete: if false;
     }
 
     match /draft_news/{docId} {
@@ -43,17 +121,56 @@ service cloud.firestore {
         || (signedIn() && resource.data.pairedWith == request.auth.uid);
 
       allow create: if isOwner(userId)
-        && !request.resource.data.keys().hasAny(['pairedWith', 'pairCode']);
+        && request.resource.data.keys().hasOnly([
+          'displayName',
+          'partnerNickname',
+          'statusIcon',
+          'statusText',
+          'lastUpdated',
+          'statusExpiresAt',
+          'partnerNote',
+          'partnerNoteUpdatedAt',
+          'partnerSketch',
+          'partnerShares'
+        ])
+        && validUserProfile(request.resource.data);
 
       allow update: if isOwner(userId)
-        && !request.resource.data.diff(resource.data).affectedKeys()
-          .hasAny(['pairedWith', 'pairCode']);
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'displayName',
+          'partnerNickname',
+          'statusIcon',
+          'statusText',
+          'lastUpdated',
+          'statusExpiresAt',
+          'partnerNote',
+          'partnerNoteUpdatedAt',
+          'partnerSketch',
+          'partnerShares'
+        ])
+        && validUserProfile(request.resource.data);
 
       allow delete: if false;
     }
 
     match /user_private/{userId} {
-      allow read, create, update: if isOwner(userId);
+      allow read: if isOwner(userId);
+      allow create: if isOwner(userId)
+        && request.resource.data.keys().hasOnly([
+          'fcmToken',
+          'tokenUpdatedAt',
+          'notificationPreferences',
+          'updatedAt'
+        ])
+        && validPrivateProfile(request.resource.data);
+      allow update: if isOwner(userId)
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'fcmToken',
+          'tokenUpdatedAt',
+          'notificationPreferences',
+          'updatedAt'
+        ])
+        && validPrivateProfile(request.resource.data);
       allow delete: if false;
     }
 

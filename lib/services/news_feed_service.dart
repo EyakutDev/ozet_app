@@ -1,4 +1,8 @@
+import 'dart:async';
+
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:ozet_app/core/diagnostics/app_logger.dart';
+import 'package:ozet_app/core/errors/app_failure.dart';
 
 class NewsPage {
   const NewsPage({
@@ -33,15 +37,60 @@ class NewsFeedService {
       query = query.startAfterDocument(after);
     }
 
-    QuerySnapshot<Map<String, dynamic>> snapshot;
-    try {
-      snapshot = await query.get();
-    } catch (serverError) {
+    late QuerySnapshot<Map<String, dynamic>> snapshot;
+    Object? serverError;
+    StackTrace? serverStackTrace;
+
+    for (var attempt = 1; attempt <= 2; attempt++) {
+      try {
+        snapshot = await query.get().timeout(const Duration(seconds: 10));
+        serverError = null;
+        break;
+      } catch (error, stackTrace) {
+        serverError = error;
+        serverStackTrace = stackTrace;
+        final failure = AppFailure.from(error);
+        final shouldRetry = attempt == 1 && failure.isTransient;
+        if (!shouldRetry) break;
+
+        AppLogger.event(
+          'operation_retry',
+          level: AppLogLevel.warning,
+          context: {
+            'operation': 'news.load_page',
+            'attempt': attempt + 1,
+            'code': failure.code,
+          },
+        );
+        await Future<void>.delayed(const Duration(milliseconds: 350));
+      }
+    }
+
+    if (serverError != null) {
+      final serverFailure = AppFailure.from(serverError);
       try {
         snapshot = await query.get(const GetOptions(source: Source.cache));
-      } catch (_) {
-        Error.throwWithStackTrace(serverError, StackTrace.current);
+      } catch (cacheError) {
+        final cacheFailure = AppFailure.from(cacheError);
+        AppLogger.event(
+          'news_cache_failed',
+          level: AppLogLevel.warning,
+          context: {
+            'serverCode': serverFailure.code,
+            'cacheCode': cacheFailure.code,
+          },
+        );
+        Error.throwWithStackTrace(serverError, serverStackTrace!);
       }
+
+      AppLogger.event(
+        'news_cache_fallback',
+        level: AppLogLevel.warning,
+        context: {
+          'code': serverFailure.code,
+          'documents': snapshot.docs.length,
+        },
+      );
     }
 
     return NewsPage(

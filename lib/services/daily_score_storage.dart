@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:ozet_app/core/diagnostics/app_logger.dart';
 import 'package:ozet_app/models/daily_score_entry.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -56,8 +57,13 @@ class DailyScoreStorage {
     try {
       final decoded = jsonDecode(rawValue);
       if (decoded is Map) return Map<String, dynamic>.from(decoded);
-    } on FormatException {
+    } on FormatException catch (error) {
       // Bozuk yerel veri yeni kayıtların oluşturulmasını engellememeli.
+      AppLogger.event(
+        'daily_score_storage_corrupt',
+        level: AppLogLevel.warning,
+        context: {'stage': 'decode', 'errorType': error.runtimeType.toString()},
+      );
     }
 
     return <String, dynamic>{};
@@ -68,7 +74,12 @@ class DailyScoreStorage {
 
     try {
       return DailyScoreEntry.fromJson(Map<String, dynamic>.from(rawEntry));
-    } on Object {
+    } catch (error) {
+      AppLogger.event(
+        'daily_score_storage_corrupt',
+        level: AppLogLevel.warning,
+        context: {'stage': 'entry', 'errorType': error.runtimeType.toString()},
+      );
       return null;
     }
   }

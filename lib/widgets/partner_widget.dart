@@ -2,12 +2,31 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
+import 'package:ozet_app/core/errors/app_error_handler.dart';
 import 'package:ozet_app/models/partner_status_view.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:ozet_app/screens/settings_screen.dart';
 import 'package:ozet_app/widgets/app_feedback.dart';
 import 'package:ozet_app/widgets/home_panel_controls.dart';
 import 'dart:ui' show ImageFilter;
+
+Future<void> _showPartnerFailure(
+  BuildContext context,
+  Object error,
+  StackTrace stackTrace, {
+  required String operation,
+  required String fallbackMessage,
+  VoidCallback? onRetry,
+}) async {
+  final failure = await AppErrorHandler.capture(
+    error,
+    stackTrace,
+    operation: operation,
+    fallbackMessage: fallbackMessage,
+  );
+  if (!context.mounted) return;
+  AppFeedback.showFailure(context, failure, onRetry: onRetry);
+}
 
 class PartnerWidget extends StatefulWidget {
   const PartnerWidget({
@@ -887,14 +906,16 @@ class _PartnerWidgetState extends State<PartnerWidget> {
             type: AppFeedbackType.success,
           );
         }
-      } catch (_) {
-        if (parentContext.mounted) {
-          AppFeedback.show(
-            parentContext,
-            "Durum güncellenemedi.",
-            type: AppFeedbackType.error,
-          );
-        }
+      } catch (error, stackTrace) {
+        if (!parentContext.mounted) return;
+        await _showPartnerFailure(
+          parentContext,
+          error,
+          stackTrace,
+          operation: 'partner.update_custom_status',
+          fallbackMessage: 'Durum güncellenemedi.',
+          onRetry: () => submitCustomStatus(sheetContext),
+        );
       }
     }
 
@@ -913,14 +934,16 @@ class _PartnerWidgetState extends State<PartnerWidget> {
             type: AppFeedbackType.success,
           );
         }
-      } catch (_) {
-        if (parentContext.mounted) {
-          AppFeedback.show(
-            parentContext,
-            "Mini not gönderilemedi.",
-            type: AppFeedbackType.error,
-          );
-        }
+      } catch (error, stackTrace) {
+        if (!parentContext.mounted) return;
+        await _showPartnerFailure(
+          parentContext,
+          error,
+          stackTrace,
+          operation: 'partner.send_note',
+          fallbackMessage: 'Mini not gönderilemedi.',
+          onRetry: () => submitNote(sheetContext),
+        );
       }
     }
 
@@ -1475,14 +1498,15 @@ class _PartnerWidgetState extends State<PartnerWidget> {
                         type: AppFeedbackType.success,
                       );
                     }
-                  } catch (_) {
-                    if (feedbackContext.mounted) {
-                      AppFeedback.show(
-                        feedbackContext,
-                        "Mini not silinemedi.",
-                        type: AppFeedbackType.error,
-                      );
-                    }
+                  } catch (error, stackTrace) {
+                    if (!feedbackContext.mounted) return;
+                    await _showPartnerFailure(
+                      feedbackContext,
+                      error,
+                      stackTrace,
+                      operation: 'partner.delete_note',
+                      fallbackMessage: 'Mini not silinemedi.',
+                    );
                   }
                 },
                 child: Text(
@@ -1524,14 +1548,15 @@ class _PartnerWidgetState extends State<PartnerWidget> {
                         type: AppFeedbackType.success,
                       );
                     }
-                  } catch (_) {
-                    if (feedbackContext.mounted) {
-                      AppFeedback.show(
-                        feedbackContext,
-                        "Çizim silinemedi.",
-                        type: AppFeedbackType.error,
-                      );
-                    }
+                  } catch (error, stackTrace) {
+                    if (!feedbackContext.mounted) return;
+                    await _showPartnerFailure(
+                      feedbackContext,
+                      error,
+                      stackTrace,
+                      operation: 'partner.delete_sketch',
+                      fallbackMessage: 'Çizim silinemedi.',
+                    );
                   }
                 },
               ),
@@ -1846,14 +1871,15 @@ class _PartnerWidgetState extends State<PartnerWidget> {
                       type: AppFeedbackType.success,
                     );
                   }
-                } catch (_) {
-                  if (feedbackContext.mounted) {
-                    AppFeedback.show(
-                      feedbackContext,
-                      "Durum güncellenemedi.",
-                      type: AppFeedbackType.error,
-                    );
-                  }
+                } catch (error, stackTrace) {
+                  if (!feedbackContext.mounted) return;
+                  await _showPartnerFailure(
+                    feedbackContext,
+                    error,
+                    stackTrace,
+                    operation: 'partner.update_quick_status',
+                    fallbackMessage: 'Durum güncellenemedi.',
+                  );
                 }
               },
               splashColor: textColor.withValues(alpha: 0.06),
@@ -2071,14 +2097,15 @@ class _PartnerWidgetState extends State<PartnerWidget> {
                             type: AppFeedbackType.success,
                           );
                         }
-                      } catch (_) {
-                        if (feedbackContext.mounted) {
-                          AppFeedback.show(
-                            feedbackContext,
-                            "Çizim gönderilemedi.",
-                            type: AppFeedbackType.error,
-                          );
-                        }
+                      } catch (error, stackTrace) {
+                        if (!feedbackContext.mounted) return;
+                        await _showPartnerFailure(
+                          feedbackContext,
+                          error,
+                          stackTrace,
+                          operation: 'partner.send_sketch',
+                          fallbackMessage: 'Çizim gönderilemedi.',
+                        );
                       }
                     },
                   ),
@@ -2132,8 +2159,14 @@ class _PartnerWidgetState extends State<PartnerWidget> {
       await FirebaseFunctions.instanceFor(region: 'europe-west1')
           .httpsCallable('notifyPartner')
           .call(<String, dynamic>{'kind': normalizedKind, 'text': text});
-    } catch (_) {
+    } catch (error, stackTrace) {
       // Bildirim hatası partner paylaşımının kaydedilmesini engellemez.
+      await AppErrorHandler.capture(
+        error,
+        stackTrace,
+        operation: 'partner.notify',
+        fallbackMessage: 'Partner bildirimi gönderilemedi.',
+      );
     }
   }
 }
@@ -2186,26 +2219,54 @@ class _SketchComposer extends StatefulWidget {
 }
 
 class _SketchComposerState extends State<_SketchComposer> {
+  static const int _maxStrokes = 80;
+  static const int _maxPoints = 2500;
+  static const double _minPointDistanceSquared = 0.000016;
+
   final List<_SketchStroke> _strokes = [];
   Color _selectedColor = const Color(0xFF0A2342);
   bool _isSending = false;
+  int _pointCount = 0;
 
   void _startStroke(Offset localPosition, Size size) {
+    if (_strokes.length >= _maxStrokes || _pointCount >= _maxPoints) return;
+    final point = _normalize(localPosition, size);
     setState(() {
       _strokes.add(
         _SketchStroke(
           colorValue: _selectedColor.toARGB32(),
           width: 4,
-          points: [_normalize(localPosition, size)],
+          points: [point],
         ),
       );
+      _pointCount += 1;
     });
   }
 
   void _extendStroke(Offset localPosition, Size size) {
+    if (_strokes.isEmpty || _pointCount >= _maxPoints) return;
+    final point = _normalize(localPosition, size);
+    final previous = _strokes.last.points.last;
+    if ((point - previous).distanceSquared < _minPointDistanceSquared) return;
+
+    setState(() {
+      _strokes.last.points.add(point);
+      _pointCount += 1;
+    });
+  }
+
+  void _undo() {
     if (_strokes.isEmpty) return;
     setState(() {
-      _strokes.last.points.add(_normalize(localPosition, size));
+      _pointCount -= _strokes.last.points.length;
+      _strokes.removeLast();
+    });
+  }
+
+  void _clear() {
+    setState(() {
+      _strokes.clear();
+      _pointCount = 0;
     });
   }
 
@@ -2401,9 +2462,7 @@ class _SketchComposerState extends State<_SketchComposer> {
               _toolButton(
                 icon: Icons.undo_rounded,
                 tooltip: "Geri al",
-                onPressed: _strokes.isEmpty || _isSending
-                    ? null
-                    : () => setState(() => _strokes.removeLast()),
+                onPressed: _strokes.isEmpty || _isSending ? null : _undo,
                 textColor: textColor,
                 mutedColor: mutedColor,
               ),
@@ -2411,9 +2470,7 @@ class _SketchComposerState extends State<_SketchComposer> {
               _toolButton(
                 icon: Icons.delete_outline_rounded,
                 tooltip: "Temizle",
-                onPressed: _strokes.isEmpty || _isSending
-                    ? null
-                    : () => setState(_strokes.clear),
+                onPressed: _strokes.isEmpty || _isSending ? null : _clear,
                 textColor: textColor,
                 mutedColor: mutedColor,
               ),

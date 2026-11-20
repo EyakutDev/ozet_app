@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:ozet_app/core/diagnostics/app_logger.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 
 class NewsWebViewScreen extends StatefulWidget {
@@ -33,7 +34,16 @@ class _NewsWebViewScreenState extends State<NewsWebViewScreen> {
             if (mounted) setState(() => _errorMessage = null);
           },
           onWebResourceError: (error) {
-            if (mounted && error.isForMainFrame != false) {
+            if (error.isForMainFrame == false) return;
+            AppLogger.event(
+              'news_webview_error',
+              level: AppLogLevel.warning,
+              context: {
+                'errorCode': error.errorCode,
+                'host': Uri.tryParse(widget.url)?.host ?? 'unknown',
+              },
+            );
+            if (mounted) {
               setState(() {
                 _errorMessage = 'Haber sayfası yüklenemedi.';
               });
@@ -123,10 +133,10 @@ class _NewsWebViewScreenState extends State<NewsWebViewScreen> {
                       Text(
                         _errorMessage!,
                         textAlign: TextAlign.center,
-                        style: GoogleFonts.kadwa(
+                        style: GoogleFonts.inter(
                           color: textColor,
-                          fontSize: 16,
-                          fontWeight: FontWeight.bold,
+                          fontSize: 15,
+                          fontWeight: FontWeight.w600,
                         ),
                       ),
                       const SizedBox(height: 12),

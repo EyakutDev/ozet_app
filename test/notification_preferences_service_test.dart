@@ -15,4 +15,37 @@ void main() {
     expect(preferences.eveningCheckIn, isFalse);
     expect(preferences.partnerUpdates, isTrue);
   });
+  test('remembers that the notification permission offer was shown', () async {
+    SharedPreferences.setMockInitialValues({});
+
+    final service = NotificationPreferencesService();
+    expect(await service.hasPermissionPromptBeenShown(), isFalse);
+
+    await service.markPermissionPromptShown();
+
+    expect(await service.hasPermissionPromptBeenShown(), isTrue);
+  });
+
+  test('rolls back the local value when remote sync fails', () async {
+    SharedPreferences.setMockInitialValues({
+      NotificationPreferencesService.morningKey: true,
+    });
+    final service = _FailingSyncNotificationPreferencesService();
+
+    await expectLater(
+      service.update(NotificationPreferencesService.morningKey, false),
+      throwsA(isA<StateError>()),
+    );
+
+    final restored = await service.load();
+    expect(restored.morningDigest, isTrue);
+  });
+}
+
+class _FailingSyncNotificationPreferencesService
+    extends NotificationPreferencesService {
+  @override
+  Future<void> sync([NotificationPreferences? preferences]) async {
+    throw StateError('Remote sync failed.');
+  }
 }

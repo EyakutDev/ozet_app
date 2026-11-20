@@ -1,12 +1,14 @@
-import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'package:firebase_auth/firebase_auth.dart'; // <-- YENİ EKLEDİK
-import 'package:ozet_app/screens/auth_screen.dart'; // Giriş ekranı
-import 'package:ozet_app/screens/home_screen.dart'; // Ana sayfa <-- YENİ EKLEDİK
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:ozet_app/core/errors/app_error_handler.dart';
+import 'package:ozet_app/screens/auth_screen.dart';
+import 'package:ozet_app/screens/home_screen.dart';
+import 'package:ozet_app/screens/onboarding_screen.dart';
+import 'package:ozet_app/services/onboarding_service.dart';
 
 class SplashScreen extends StatefulWidget {
-  const SplashScreen({Key? key}) : super(key: key);
+  const SplashScreen({super.key});
 
   @override
   State<SplashScreen> createState() => _SplashScreenState();
@@ -20,29 +22,53 @@ class _SplashScreenState extends State<SplashScreen> {
   }
 
   // Akıllı yönlendirme fonksiyonu
-  void _checkCurrentUserAndNavigate() {
-    Timer(const Duration(seconds: 3), () {
-      if (!mounted) return; // Ekran kapandıysa işlem yapma (güvenlik için)
+  Future<void> _checkCurrentUserAndNavigate() async {
+    await Future<void>.delayed(const Duration(milliseconds: 700));
+    if (!mounted) return; // Ekran kapandıysa işlem yapma (güvenlik için)
 
-      // === İŞTE "BENİ HATIRLA" KONTROLÜ BURADA ===
-      // Firebase'den mevcut kullanıcıyı kontrol et
-      User? user = FirebaseAuth.instance.currentUser;
+    final user = FirebaseAuth.instance.currentUser;
+    final onboarding = OnboardingService();
 
-      if (user != null) {
-        // KULLANICI GİRİŞ YAPMIŞ: "Beni Hatırla" çalıştı
-        // Direkt Ana Sayfa'ya (HomeScreen) yönlendir
-        Navigator.of(context).pushReplacement(
-          MaterialPageRoute(builder: (context) => const HomeScreen()),
-        );
-      } else {
-        // KULLANICI GİRİŞ YAPMAMIŞ: Oturum kapalı
-        // Giriş/Kayıt Ekranı'na (AuthScreen) yönlendir
-        Navigator.of(context).pushReplacement(
-          MaterialPageRoute(builder: (context) => const AuthScreen()),
+    if (user != null) {
+      try {
+        await onboarding.complete();
+      } catch (error, stackTrace) {
+        await AppErrorHandler.capture(
+          error,
+          stackTrace,
+          operation: 'onboarding.migrate_existing_user',
+          fallbackMessage: 'Başlangıç tercihi kaydedilemedi.',
         );
       }
-      // === KONTROL BİTTİ ===
-    });
+      if (!mounted) return;
+      Navigator.of(context).pushReplacement(
+        MaterialPageRoute(builder: (context) => const HomeScreen()),
+      );
+      return;
+    }
+
+    try {
+      final hasCompletedOnboarding = await onboarding.hasCompleted();
+      if (!mounted) return;
+      Navigator.of(context).pushReplacement(
+        MaterialPageRoute(
+          builder: (context) => hasCompletedOnboarding
+              ? const AuthScreen()
+              : const OnboardingScreen(),
+        ),
+      );
+    } catch (error, stackTrace) {
+      await AppErrorHandler.capture(
+        error,
+        stackTrace,
+        operation: 'onboarding.load',
+        fallbackMessage: 'Başlangıç tercihi okunamadı.',
+      );
+      if (!mounted) return;
+      Navigator.of(context).pushReplacement(
+        MaterialPageRoute(builder: (context) => const AuthScreen()),
+      );
+    }
   }
 
   @override
@@ -51,7 +77,7 @@ class _SplashScreenState extends State<SplashScreen> {
     // Tasarımına uygun renkler
     final Color beyaz = Colors.white;
     // Siyah renk %61 opaklıkta
-    final Color altYaziRengi = const Color(0xFF000000).withOpacity(0.61);
+    final Color altYaziRengi = const Color(0xFF000000).withValues(alpha: 0.61);
 
     return Scaffold(
       backgroundColor: beyaz,

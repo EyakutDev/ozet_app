@@ -3,6 +3,8 @@ import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:ozet_app/core/errors/app_error_handler.dart';
+import 'package:ozet_app/core/errors/app_failure.dart';
 import 'package:ozet_app/services/news_feed_service.dart';
 
 typedef NewsVisibilityPredicate =
@@ -43,7 +45,7 @@ class _PaginatedNewsFeedState extends State<PaginatedNewsFeed>
     with WidgetsBindingObserver {
   final List<QueryDocumentSnapshot<Map<String, dynamic>>> _documents = [];
   DocumentSnapshot<Map<String, dynamic>>? _cursor;
-  Object? _error;
+  AppFailure? _error;
   bool _isInitialLoading = true;
   bool _isLoadingMore = false;
   bool _hasMore = true;
@@ -150,9 +152,16 @@ class _PaginatedNewsFeedState extends State<PaginatedNewsFeed>
         _cursor = nextCursor;
         _hasMore = hasMore;
       });
-    } catch (error) {
+    } catch (error, stackTrace) {
+      final failure = await AppErrorHandler.capture(
+        error,
+        stackTrace,
+        operation: reset ? 'news.initial_load' : 'news.load_more',
+        fallbackMessage: 'Haberler yüklenemedi.',
+        context: {'reset': reset, 'loadedDocuments': loadedDocuments.length},
+      );
       if (!mounted) return;
-      setState(() => _error = error);
+      setState(() => _error = failure);
     } finally {
       if (mounted) {
         setState(() {
@@ -175,7 +184,7 @@ class _PaginatedNewsFeedState extends State<PaginatedNewsFeed>
 
     final visibleDocuments = _documents.where(widget.isVisible).toList();
     if (visibleDocuments.isEmpty && _error != null) {
-      return _buildRecoveryState('Haberler yüklenemedi.');
+      return _buildRecoveryState(_error!);
     }
 
     if (visibleDocuments.isEmpty) {
@@ -206,7 +215,7 @@ class _PaginatedNewsFeedState extends State<PaginatedNewsFeed>
               widget.itemBuilder(context, visibleDocuments[index]),
         ),
         if (_error != null)
-          _buildRecoveryState('Yeni haberler yüklenemedi.')
+          _buildRecoveryState(_error!)
         else if (_isLoadingMore)
           const Padding(
             padding: EdgeInsets.symmetric(vertical: 18),
@@ -219,7 +228,7 @@ class _PaginatedNewsFeedState extends State<PaginatedNewsFeed>
     );
   }
 
-  Widget _buildRecoveryState(String message) {
+  Widget _buildRecoveryState(AppFailure failure) {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 16),
       child: Row(
@@ -229,7 +238,7 @@ class _PaginatedNewsFeedState extends State<PaginatedNewsFeed>
           const SizedBox(width: 8),
           Flexible(
             child: Text(
-              message,
+              failure.userMessage,
               style: GoogleFonts.inter(
                 color: widget.mutedColor,
                 fontSize: 12.5,
@@ -237,11 +246,13 @@ class _PaginatedNewsFeedState extends State<PaginatedNewsFeed>
               ),
             ),
           ),
-          const SizedBox(width: 6),
-          TextButton(
-            onPressed: () => _loadPage(reset: _documents.isEmpty),
-            child: const Text('Tekrar dene'),
-          ),
+          if (failure.canRetry) ...[
+            const SizedBox(width: 6),
+            TextButton(
+              onPressed: () => _loadPage(reset: _documents.isEmpty),
+              child: const Text('Tekrar dene'),
+            ),
+          ],
         ],
       ),
     );

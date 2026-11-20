@@ -5,6 +5,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:google_sign_in/google_sign_in.dart';
+import 'package:ozet_app/core/diagnostics/app_logger.dart';
+import 'package:ozet_app/core/errors/app_error_handler.dart';
 import 'package:ozet_app/screens/home_screen.dart';
 import 'package:ozet_app/theme/app_theme_palette.dart';
 import 'package:ozet_app/widgets/app_feedback.dart';
@@ -51,7 +53,13 @@ class _AuthScreenState extends State<AuthScreen> {
     try {
       try {
         await _googleSignIn.signInSilently();
-      } catch (_) {}
+      } catch (error) {
+        AppLogger.event(
+          'google_silent_sign_in_failed',
+          level: AppLogLevel.warning,
+          context: {'errorType': error.runtimeType.toString()},
+        );
+      }
 
       final googleUser = await _googleSignIn.signIn();
       if (googleUser == null) return;
@@ -76,15 +84,13 @@ class _AuthScreenState extends State<AuthScreen> {
           MaterialPageRoute(builder: (_) => const HomeScreen()),
         );
       }
-    } on FirebaseAuthException catch (error) {
-      _showSnackBar(
-        error.message ?? 'Firebase hatası oluştu.',
-        type: AppFeedbackType.error,
-      );
-    } catch (_) {
-      _showSnackBar(
-        'Google ile giriş başarısız. Lütfen tekrar deneyin.',
-        type: AppFeedbackType.error,
+    } catch (error, stackTrace) {
+      await _showOperationFailure(
+        error,
+        stackTrace,
+        operation: 'auth.google_sign_in',
+        fallbackMessage: 'Google ile giriş tamamlanamadı.',
+        onRetry: _signInWithGoogle,
       );
     } finally {
       if (mounted) setState(() => _isLoading = false);
@@ -137,15 +143,15 @@ class _AuthScreenState extends State<AuthScreen> {
       Navigator.of(
         context,
       ).pushReplacement(MaterialPageRoute(builder: (_) => const HomeScreen()));
-    } on FirebaseAuthException catch (error) {
-      _showSnackBar(
-        error.message ?? 'Giriş işlemi başarısız.',
-        type: AppFeedbackType.error,
-      );
-    } catch (_) {
-      _showSnackBar(
-        'Beklenmeyen bir hata oluştu.',
-        type: AppFeedbackType.error,
+    } catch (error, stackTrace) {
+      await _showOperationFailure(
+        error,
+        stackTrace,
+        operation: isLoginMode ? 'auth.email_sign_in' : 'auth.register',
+        fallbackMessage: isLoginMode
+            ? 'Giriş işlemi tamamlanamadı.'
+            : 'Hesap oluşturulamadı.',
+        onRetry: _submitAuthForm,
       );
     } finally {
       if (mounted) setState(() => _isLoading = false);
@@ -170,17 +176,32 @@ class _AuthScreenState extends State<AuthScreen> {
         'Şifre sıfırlama bağlantısı e-posta adresinize gönderildi.',
         type: AppFeedbackType.success,
       );
-    } on FirebaseAuthException catch (error) {
-      _showSnackBar(
-        error.message ?? 'Şifre sıfırlama gönderilemedi.',
-        type: AppFeedbackType.error,
-      );
-    } catch (_) {
-      _showSnackBar(
-        'Şifre sıfırlama gönderilemedi.',
-        type: AppFeedbackType.error,
+    } catch (error, stackTrace) {
+      await _showOperationFailure(
+        error,
+        stackTrace,
+        operation: 'auth.password_reset',
+        fallbackMessage: 'Şifre sıfırlama bağlantısı gönderilemedi.',
+        onRetry: _resetPassword,
       );
     }
+  }
+
+  Future<void> _showOperationFailure(
+    Object error,
+    StackTrace stackTrace, {
+    required String operation,
+    required String fallbackMessage,
+    VoidCallback? onRetry,
+  }) async {
+    final failure = await AppErrorHandler.capture(
+      error,
+      stackTrace,
+      operation: operation,
+      fallbackMessage: fallbackMessage,
+    );
+    if (!mounted) return;
+    AppFeedback.showFailure(context, failure, onRetry: onRetry);
   }
 
   void _showSnackBar(

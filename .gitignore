@@ -43,3 +43,11 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
+# Local secrets and generated Firebase test files
+/android/key.properties
+/android/*.jks
+/android/*.keystore
+**/node_modules/
+ozet-admin-panel/.firebase/
+ozet-admin-panel/firestore-debug.log
+ozet-admin-panel/ui-debug.log

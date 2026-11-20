@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="theme-color" content="#0a2342">
   <title>Ozet Admin Paneli</title>
-  <link rel="stylesheet" href="style_v2.css?v=20260711-3">
+  <link rel="stylesheet" href="style_v2.css?v=20260902-1">
 </head>
 <body>
 
@@ -60,9 +60,11 @@
         <div class="stats-grid">
           <article class="stat-card accent-navy"><span>Canli Haber</span><strong id="stat-live-count">-</strong><small>Uygulamada gorunen</small></article>
           <article class="stat-card accent-teal"><span>Onay Bekleyen</span><strong id="stat-draft-count">-</strong><small>Yayina hazirlanan</small></article>
+          <article class="stat-card accent-sky"><span>Bugun Eklenen</span><strong id="stat-today-added">-</strong><small>Yeni haber ve taslak</small></article>
+          <article class="stat-card accent-orange"><span>Bugun Yayinlanan</span><strong id="stat-today-published">-</strong><small>Son takvim gunu</small></article>
+          <article class="stat-card accent-slate"><span>Bugun Silinen</span><strong id="stat-today-deleted">-</strong><small>Admin islemleri</small></article>
           <article class="stat-card accent-violet"><span>AI Ozetli</span><strong id="stat-ai-count">-</strong><small>Tum haberler icinde</small></article>
           <article class="stat-card accent-green"><span>Aktif RSS</span><strong id="stat-rss-active">-</strong><small>Otomatik takipte</small></article>
-          <article class="stat-card accent-orange"><span>Bugun Yayinlanan</span><strong id="stat-today-published">-</strong><small>Son takvim gunu</small></article>
           <article class="stat-card accent-red"><span>RSS Hatasi</span><strong id="stat-rss-error">-</strong><small>Kontrol gereken kaynak</small></article>
         </div>
       </section>
@@ -76,8 +78,10 @@
           <span id="selected-draft-count">0 secili</span>
           <button id="select-visible-drafts-btn" type="button">Gorunenleri Sec</button>
           <button id="clear-draft-selection-btn" type="button">Temizle</button>
-          <button id="publish-selected-drafts-btn" class="publish-action" type="button" disabled>Secilenleri Yayinla</button>
-          <button id="delete-selected-drafts-btn" class="delete-btn" type="button" disabled>Toplu Sil</button>
+          <button id="summarize-selected-drafts-btn" class="ai-action desktop-bulk-action" type="button" disabled>AI Ozetle</button>
+          <button id="categorize-selected-drafts-btn" class="category-action desktop-bulk-action" type="button" disabled>Kategori</button>
+          <button id="publish-selected-drafts-btn" class="publish-action desktop-bulk-action" type="button" disabled>Secilenleri Yayinla</button>
+          <button id="delete-selected-drafts-btn" class="delete-btn desktop-bulk-action" type="button" disabled>Toplu Sil</button>
         </div>
         <div id="draft-list-container" class="news-list"></div>
         <button id="publish-all-btn" class="publish-all" type="button">Tum Taslaklari Canliya Yayinla</button>
@@ -93,8 +97,9 @@
           <span id="selected-live-count">0 secili</span>
           <button id="select-visible-live-btn" type="button">Gorunenleri Sec</button>
           <button id="clear-live-selection-btn" type="button" disabled>Temizle</button>
-          <button id="unpublish-selected-live-btn" class="warning-action" type="button" disabled>Yayindan Kaldir</button>
-          <button id="delete-selected-live-btn" class="delete-btn" type="button" disabled>Kalici Sil</button>
+          <button id="categorize-selected-live-btn" class="category-action desktop-bulk-action" type="button" disabled>Kategori</button>
+          <button id="unpublish-selected-live-btn" class="warning-action desktop-bulk-action" type="button" disabled>Yayindan Kaldir</button>
+          <button id="delete-selected-live-btn" class="delete-btn desktop-bulk-action" type="button" disabled>Kalici Sil</button>
         </div>
         <div id="live-list-container" class="news-list"></div>
         <p id="live-success" class="success-message"></p>
@@ -158,11 +163,39 @@
   </main>
 </div>
 
+<aside id="mobile-bulk-dock" class="mobile-bulk-dock" aria-live="polite" aria-hidden="true">
+  <div class="mobile-bulk-summary">
+    <div><strong id="mobile-bulk-count">0 secili</strong><span id="mobile-bulk-context">Taslaklar</span></div>
+    <button id="mobile-bulk-clear-btn" class="mobile-dock-close" type="button" aria-label="Secimi temizle">&times;</button>
+  </div>
+  <div class="mobile-bulk-actions">
+    <button id="mobile-bulk-ai-btn" class="ai-action" type="button">AI Ozetle</button>
+    <button id="mobile-bulk-category-btn" class="category-action" type="button">Kategori</button>
+    <button id="mobile-bulk-primary-btn" class="publish-action" type="button">Yayinla</button>
+    <button id="mobile-bulk-delete-btn" class="delete-btn" type="button">Sil</button>
+  </div>
+</aside>
+
+<dialog id="bulk-category-dialog" class="bulk-dialog">
+  <form id="bulk-category-form" method="dialog">
+    <div class="dialog-heading">
+      <div><p class="eyebrow">Toplu Duzenleme</p><h2>Kategori Degistir</h2></div>
+      <button id="bulk-category-close-btn" class="dialog-close" type="button" aria-label="Pencereyi kapat">&times;</button>
+    </div>
+    <label for="bulk-category-input">Yeni kategori</label>
+    <input id="bulk-category-input" type="text" maxlength="40" placeholder="Orn. Gundem" autocomplete="off">
+    <p id="bulk-category-note" class="dialog-note"></p>
+    <div class="dialog-actions">
+      <button id="bulk-category-cancel-btn" class="secondary-button" type="button">Vazgec</button>
+      <button id="bulk-category-save-btn" type="submit">Uygula</button>
+    </div>
+  </form>
+</dialog>
 
 <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-firestore-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-functions-compat.js"></script>
-<script src="app_v2.js?v=20260711-3"></script>
+<script src="app_v2.js?v=20260902-1"></script>
 </body>
 </html>

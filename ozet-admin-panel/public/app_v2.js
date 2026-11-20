@@ -15,6 +15,7 @@ const functions = firebase.app().functions('europe-west1');
 const newsCollection = db.collection('news');
 const legacyDraftNewsCollection = db.collection('draft_news');
 const rssSourcesCollection = db.collection('rss_sources');
+const adminActivityCollection = db.collection('admin_activity');
 const financeDocRef = db.collection('live_data').doc('finance');
 
 window.addEventListener('load', () => {
@@ -46,6 +47,8 @@ window.addEventListener('load', () => {
     const selectedDraftCount = document.getElementById('selected-draft-count');
     const selectVisibleDraftsBtn = document.getElementById('select-visible-drafts-btn');
     const clearDraftSelectionBtn = document.getElementById('clear-draft-selection-btn');
+    const summarizeSelectedDraftsBtn = document.getElementById('summarize-selected-drafts-btn');
+    const categorizeSelectedDraftsBtn = document.getElementById('categorize-selected-drafts-btn');
     const publishSelectedDraftsBtn = document.getElementById('publish-selected-drafts-btn');
     const deleteSelectedDraftsBtn = document.getElementById('delete-selected-drafts-btn');
 
@@ -63,6 +66,7 @@ window.addEventListener('load', () => {
     const selectedLiveCount = document.getElementById('selected-live-count');
     const selectVisibleLiveBtn = document.getElementById('select-visible-live-btn');
     const clearLiveSelectionBtn = document.getElementById('clear-live-selection-btn');
+    const categorizeSelectedLiveBtn = document.getElementById('categorize-selected-live-btn');
     const unpublishSelectedLiveBtn = document.getElementById('unpublish-selected-live-btn');
     const deleteSelectedLiveBtn = document.getElementById('delete-selected-live-btn');
     const liveSuccess = document.getElementById('live-success');
@@ -71,7 +75,9 @@ window.addEventListener('load', () => {
     const statDraftCount = document.getElementById('stat-draft-count');
     const statAiCount = document.getElementById('stat-ai-count');
     const statRssActive = document.getElementById('stat-rss-active');
+    const statTodayAdded = document.getElementById('stat-today-added');
     const statTodayPublished = document.getElementById('stat-today-published');
+    const statTodayDeleted = document.getElementById('stat-today-deleted');
     const statRssError = document.getElementById('stat-rss-error');
     const refreshAdminBtn = document.getElementById('refresh-admin-btn');
     const lastRefreshLabel = document.getElementById('last-refresh-label');
@@ -80,10 +86,30 @@ window.addEventListener('load', () => {
     const notifBodyInput = document.getElementById('notif-body');
     const sendNotifBtn = document.getElementById('send-notif-btn');
     const notifSuccess = document.getElementById('notif-success');
+
+    const mobileBulkDock = document.getElementById('mobile-bulk-dock');
+    const mobileBulkCount = document.getElementById('mobile-bulk-count');
+    const mobileBulkContext = document.getElementById('mobile-bulk-context');
+    const mobileBulkClearBtn = document.getElementById('mobile-bulk-clear-btn');
+    const mobileBulkAiBtn = document.getElementById('mobile-bulk-ai-btn');
+    const mobileBulkCategoryBtn = document.getElementById('mobile-bulk-category-btn');
+    const mobileBulkPrimaryBtn = document.getElementById('mobile-bulk-primary-btn');
+    const mobileBulkDeleteBtn = document.getElementById('mobile-bulk-delete-btn');
+
+    const bulkCategoryDialog = document.getElementById('bulk-category-dialog');
+    const bulkCategoryForm = document.getElementById('bulk-category-form');
+    const bulkCategoryInput = document.getElementById('bulk-category-input');
+    const bulkCategoryNote = document.getElementById('bulk-category-note');
+    const bulkCategoryCloseBtn = document.getElementById('bulk-category-close-btn');
+    const bulkCategoryCancelBtn = document.getElementById('bulk-category-cancel-btn');
+    const bulkCategorySaveBtn = document.getElementById('bulk-category-save-btn');
+
     const selectedDrafts = new Map();
     const selectedLiveNews = new Map();
     let visibleDrafts = [];
     let visibleLiveNews = [];
+    let activeMobileSelection = 'draft';
+    let categorySelectionMode = 'draft';
 
     document.querySelectorAll('.nav-link').forEach((link) => {
         link.addEventListener('click', () => {
@@ -126,7 +152,8 @@ window.addEventListener('load', () => {
             loadCurrentFinanceData(),
             loadDraftNews(),
             loadLiveNews(),
-            loadRssSources()
+            loadRssSources(),
+            loadDailyActivityStats()
         ]);
 
         if (lastRefreshLabel) {
@@ -155,6 +182,108 @@ window.addEventListener('load', () => {
         element.textContent = message;
         setTimeout(() => { element.textContent = ''; }, 3000);
     }
+
+    function startOfToday() {
+        const now = new Date();
+        return new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    }
+
+    function isTodayTimestamp(value) {
+        return value && typeof value.toMillis === 'function'
+            && value.toMillis() >= startOfToday().getTime();
+    }
+
+    async function commitInChunks(items, addOperations) {
+        const chunkSize = 400;
+        for (let index = 0; index < items.length; index += chunkSize) {
+            const chunk = items.slice(index, index + chunkSize);
+            const batch = db.batch();
+            addOperations(batch, chunk);
+            await batch.commit();
+        }
+    }
+
+    function appendDeletionAudit(batch, count, scope) {
+        const user = auth.currentUser;
+        if (!user) throw new Error('Admin oturumu bulunamadi.');
+        batch.set(adminActivityCollection.doc(), {
+            type: 'news_deleted',
+            scope,
+            count,
+            actorUid: user.uid,
+            createdAt: firebase.firestore.FieldValue.serverTimestamp()
+        });
+    }
+
+    async function loadDailyActivityStats() {
+        if (!statTodayDeleted) return;
+        try {
+            const start = firebase.firestore.Timestamp.fromDate(startOfToday());
+            const snapshot = await adminActivityCollection
+                .where('createdAt', '>=', start)
+                .get();
+            statTodayDeleted.textContent = snapshot.docs
+                .filter((doc) => doc.data().type === 'news_deleted')
+                .reduce((total, doc) => total + Number(doc.data().count || 0), 0);
+        } catch (error) {
+            console.error('Gunluk admin istatistigi yuklenemedi.', error);
+            statTodayDeleted.textContent = '-';
+        }
+    }
+
+    function activeSelectionMode() {
+        const activeCount = activeMobileSelection === 'draft'
+            ? selectedDrafts.size
+            : selectedLiveNews.size;
+        if (activeCount > 0) return activeMobileSelection;
+        if (selectedDrafts.size > 0) return 'draft';
+        if (selectedLiveNews.size > 0) return 'live';
+        return activeMobileSelection;
+    }
+
+    function updateMobileBulkDock() {
+        const mode = activeSelectionMode();
+        activeMobileSelection = mode;
+        const count = mode === 'draft' ? selectedDrafts.size : selectedLiveNews.size;
+        const eligibleAiCount = mode === 'draft'
+            ? selectedDraftList().filter((item) => !item.legacy).length
+            : 0;
+
+        if (mobileBulkDock) {
+            mobileBulkDock.classList.toggle('is-visible', count > 0);
+            mobileBulkDock.setAttribute('aria-hidden', count > 0 ? 'false' : 'true');
+        }
+        if (mobileBulkCount) mobileBulkCount.textContent = count + ' secili';
+        if (mobileBulkContext) mobileBulkContext.textContent = mode === 'draft' ? 'Taslaklar' : 'Canli Haberler';
+        if (mobileBulkAiBtn) {
+            mobileBulkAiBtn.hidden = mode !== 'draft';
+            mobileBulkAiBtn.disabled = eligibleAiCount === 0;
+        }
+        if (mobileBulkCategoryBtn) mobileBulkCategoryBtn.disabled = count === 0;
+        if (mobileBulkPrimaryBtn) {
+            mobileBulkPrimaryBtn.disabled = count === 0;
+            mobileBulkPrimaryBtn.textContent = mode === 'draft' ? 'Yayinla' : 'Yayindan Al';
+            mobileBulkPrimaryBtn.className = mode === 'draft' ? 'publish-action' : 'warning-action';
+        }
+        if (mobileBulkDeleteBtn) mobileBulkDeleteBtn.disabled = count === 0;
+    }
+
+    function openBulkCategoryDialog(mode) {
+        const count = mode === 'draft' ? selectedDrafts.size : selectedLiveNews.size;
+        if (count === 0 || !bulkCategoryDialog) return;
+        categorySelectionMode = mode;
+        if (bulkCategoryInput) bulkCategoryInput.value = '';
+        if (bulkCategoryNote) {
+            bulkCategoryNote.textContent = count + ' haberin kategorisi guncellenecek.';
+        }
+        bulkCategoryDialog.showModal();
+        if (bulkCategoryInput) bulkCategoryInput.focus();
+    }
+
+    function closeBulkCategoryDialog() {
+        if (bulkCategoryDialog && bulkCategoryDialog.open) bulkCategoryDialog.close();
+    }
+
     function draftSelectionKey(docId, legacy) {
         return `${legacy ? 'legacy' : 'news'}:${docId}`;
     }
@@ -163,6 +292,7 @@ window.addEventListener('load', () => {
         const key = draftSelectionKey(docId, legacy);
         if (checked) {
             selectedDrafts.set(key, { docId, data, legacy });
+            activeMobileSelection = 'draft';
         } else {
             selectedDrafts.delete(key);
         }
@@ -185,11 +315,15 @@ window.addEventListener('load', () => {
 
     function updateDraftBulkToolbar() {
         const count = selectedDrafts.size;
+        const eligibleAiCount = selectedDraftList().filter((item) => !item.legacy).length;
         if (selectedDraftCount) selectedDraftCount.textContent = `${count} secili`;
         if (draftBulkToolbar) draftBulkToolbar.classList.toggle('has-selection', count > 0);
+        if (summarizeSelectedDraftsBtn) summarizeSelectedDraftsBtn.disabled = eligibleAiCount === 0;
+        if (categorizeSelectedDraftsBtn) categorizeSelectedDraftsBtn.disabled = count === 0;
         if (publishSelectedDraftsBtn) publishSelectedDraftsBtn.disabled = count === 0;
         if (deleteSelectedDraftsBtn) deleteSelectedDraftsBtn.disabled = count === 0;
         if (clearDraftSelectionBtn) clearDraftSelectionBtn.disabled = count === 0;
+        updateMobileBulkDock();
     }
 
     function selectedDraftList() {
@@ -199,6 +333,7 @@ window.addEventListener('load', () => {
     function setLiveSelection(docId, data, checked) {
         if (checked) {
             selectedLiveNews.set(docId, { docId, data });
+            activeMobileSelection = 'live';
         } else {
             selectedLiveNews.delete(docId);
         }
@@ -224,8 +359,10 @@ window.addEventListener('load', () => {
         if (selectedLiveCount) selectedLiveCount.textContent = count + ' secili';
         if (liveBulkToolbar) liveBulkToolbar.classList.toggle('has-selection', count > 0);
         if (clearLiveSelectionBtn) clearLiveSelectionBtn.disabled = count === 0;
+        if (categorizeSelectedLiveBtn) categorizeSelectedLiveBtn.disabled = count === 0;
         if (unpublishSelectedLiveBtn) unpublishSelectedLiveBtn.disabled = count === 0;
         if (deleteSelectedLiveBtn) deleteSelectedLiveBtn.disabled = count === 0;
+        updateMobileBulkDock();
     }
 
     function isDraftNews(data) {
@@ -401,6 +538,16 @@ window.addEventListener('load', () => {
         if (statAiCount) {
             statAiCount.textContent = newsSnapshot.docs.filter((doc) => doc.data().aiGenerated === true).length;
         }
+        if (statTodayAdded) {
+            statTodayAdded.textContent = [...newsSnapshot.docs, ...legacySnapshot.docs]
+                .filter((doc) => isTodayTimestamp(doc.data().createdAt))
+                .length;
+        }
+        if (statTodayPublished) {
+            statTodayPublished.textContent = newsSnapshot.docs
+                .filter((doc) => isTodayTimestamp(doc.data().publishedAt))
+                .length;
+        }
         syncSelectedDraftsWithVisible(allDrafts);
 
         if (allDrafts.length === 0) {
@@ -434,15 +581,18 @@ window.addEventListener('load', () => {
             if (mode === 'draft') {
                 selectInput.checked = selectedDrafts.has(draftSelectionKey(docId, legacy));
                 selectInput.addEventListener('change', () => {
+                    item.classList.toggle('is-selected', selectInput.checked);
                     setDraftSelection(docId, data, legacy, selectInput.checked);
                 });
             } else {
                 selectInput.checked = selectedLiveNews.has(docId);
                 selectInput.addEventListener('change', () => {
+                    item.classList.toggle('is-selected', selectInput.checked);
                     setLiveSelection(docId, data, selectInput.checked);
                 });
             }
 
+            item.classList.toggle('is-selected', selectInput.checked);
             selectWrap.appendChild(selectInput);
             item.appendChild(selectWrap);
         }
@@ -568,40 +718,45 @@ window.addEventListener('load', () => {
 
     async function deleteDraft(docId, legacy = false) {
         if (!confirm('Taslak silinsin mi?')) return;
-        if (legacy) {
-            await legacyDraftNewsCollection.doc(docId).delete();
-        } else {
-            await newsCollection.doc(docId).delete();
+        try {
+            const batch = db.batch();
+            const ref = legacy ? legacyDraftNewsCollection.doc(docId) : newsCollection.doc(docId);
+            batch.delete(ref);
+            appendDeletionAudit(batch, 1, 'draft');
+            await batch.commit();
+            await Promise.all([loadDraftNews(), loadDailyActivityStats()]);
+        } catch (error) {
+            alert('Taslak silinemedi: ' + error.message);
         }
-        loadDraftNews();
     }
     async function publishSelectedDrafts() {
         const selected = selectedDraftList();
         if (selected.length === 0) return;
         if (!confirm(`${selected.length} taslak canliya alinsin mi?`)) return;
 
-        const batch = db.batch();
-        selected.forEach(({ docId, data, legacy }) => {
-            const publishedData = {
-                ...data,
-                published: true,
-                status: 'published',
-                publishedAt: firebase.firestore.FieldValue.serverTimestamp()
-            };
-
-            if (legacy) {
-                batch.set(newsCollection.doc(), publishedData);
-                batch.delete(legacyDraftNewsCollection.doc(docId));
-            } else {
-                batch.set(newsCollection.doc(docId), publishedData, { merge: true });
-            }
-        });
-
-        await batch.commit();
-        selectedDrafts.clear();
-        showTemporaryMessage(publishSuccess, `${selected.length} taslak yayinlandi.`);
-        loadDraftNews();
-        loadLiveNews();
+        try {
+            await commitInChunks(selected, (batch, chunk) => {
+                chunk.forEach(({ docId, data, legacy }) => {
+                    const publishedData = {
+                        ...data,
+                        published: true,
+                        status: 'published',
+                        publishedAt: firebase.firestore.FieldValue.serverTimestamp()
+                    };
+                    if (legacy) {
+                        batch.set(newsCollection.doc(), publishedData);
+                        batch.delete(legacyDraftNewsCollection.doc(docId));
+                    } else {
+                        batch.set(newsCollection.doc(docId), publishedData, { merge: true });
+                    }
+                });
+            });
+            selectedDrafts.clear();
+            showTemporaryMessage(publishSuccess, `${selected.length} taslak yayinlandi.`);
+            await Promise.all([loadDraftNews(), loadLiveNews()]);
+        } catch (error) {
+            alert('Taslaklar yayinlanamadi: ' + error.message);
+        }
     }
 
     async function deleteSelectedDrafts() {
@@ -609,20 +764,178 @@ window.addEventListener('load', () => {
         if (selected.length === 0) return;
         if (!confirm(`${selected.length} taslak kalici olarak silinsin mi?`)) return;
 
-        const batch = db.batch();
-        selected.forEach(({ docId, legacy }) => {
-            const ref = legacy ? legacyDraftNewsCollection.doc(docId) : newsCollection.doc(docId);
-            batch.delete(ref);
-        });
+        try {
+            await commitInChunks(selected, (batch, chunk) => {
+                chunk.forEach(({ docId, legacy }) => {
+                    const ref = legacy ? legacyDraftNewsCollection.doc(docId) : newsCollection.doc(docId);
+                    batch.delete(ref);
+                });
+                appendDeletionAudit(batch, chunk.length, 'draft');
+            });
+            selectedDrafts.clear();
+            showTemporaryMessage(publishSuccess, `${selected.length} taslak silindi.`);
+            await Promise.all([loadDraftNews(), loadDailyActivityStats()]);
+        } catch (error) {
+            alert('Taslaklar silinemedi: ' + error.message);
+        }
+    }
 
-        await batch.commit();
-        selectedDrafts.clear();
-        showTemporaryMessage(publishSuccess, `${selected.length} taslak silindi.`);
-        loadDraftNews();
+    async function summarizeSelectedDrafts() {
+        const selected = selectedDraftList();
+        const eligible = selected.filter((item) => !item.legacy);
+        if (eligible.length === 0) {
+            alert('Secimde AI ile ozetlenebilecek yeni taslak yok.');
+            return;
+        }
+        const legacyCount = selected.length - eligible.length;
+        const legacyNote = legacyCount > 0 ? ` ${legacyCount} eski taslak atlanacak.` : '';
+        if (!confirm(`${eligible.length} taslak AI ile ozetlensin mi?${legacyNote}`)) return;
+
+        const summarizeNewsWithAi = functions.httpsCallable('summarizeNewsWithAi');
+        const desktopText = summarizeSelectedDraftsBtn ? summarizeSelectedDraftsBtn.textContent : '';
+        const mobileText = mobileBulkAiBtn ? mobileBulkAiBtn.textContent : '';
+        if (summarizeSelectedDraftsBtn) {
+            summarizeSelectedDraftsBtn.disabled = true;
+            summarizeSelectedDraftsBtn.textContent = 'AI 0/' + eligible.length;
+        }
+        if (mobileBulkAiBtn) {
+            mobileBulkAiBtn.disabled = true;
+            mobileBulkAiBtn.textContent = 'AI 0/' + eligible.length;
+        }
+
+        let completed = 0;
+        let failed = 0;
+        for (const item of eligible) {
+            try {
+                await summarizeNewsWithAi({ newsId: item.docId });
+                completed++;
+            } catch (error) {
+                failed++;
+                console.error('Toplu AI ozetleme basarisiz.', item.docId, error);
+            }
+            const progress = 'AI ' + (completed + failed) + '/' + eligible.length;
+            if (summarizeSelectedDraftsBtn) summarizeSelectedDraftsBtn.textContent = progress;
+            if (mobileBulkAiBtn) mobileBulkAiBtn.textContent = progress;
+        }
+
+        if (summarizeSelectedDraftsBtn) summarizeSelectedDraftsBtn.textContent = desktopText;
+        if (mobileBulkAiBtn) mobileBulkAiBtn.textContent = mobileText;
+        showTemporaryMessage(
+            publishSuccess,
+            completed + ' taslak ozetlendi' + (failed > 0 ? ', ' + failed + ' islem basarisiz.' : '.')
+        );
+        await loadDraftNews();
+    }
+
+    async function applyBulkCategory(event) {
+        event.preventDefault();
+        const category = cleanText(bulkCategoryInput ? bulkCategoryInput.value : '');
+        const selected = categorySelectionMode === 'draft'
+            ? selectedDraftList()
+            : Array.from(selectedLiveNews.values());
+
+        if (!category) {
+            if (bulkCategoryNote) bulkCategoryNote.textContent = 'Kategori bos birakilamaz.';
+            return;
+        }
+        if (selected.length === 0) {
+            closeBulkCategoryDialog();
+            return;
+        }
+
+        const oldText = bulkCategorySaveBtn ? bulkCategorySaveBtn.textContent : '';
+        if (bulkCategorySaveBtn) {
+            bulkCategorySaveBtn.disabled = true;
+            bulkCategorySaveBtn.textContent = 'Uygulaniyor';
+        }
+
+        try {
+            await commitInChunks(selected, (batch, chunk) => {
+                chunk.forEach(({ docId, legacy }) => {
+                    const ref = legacy
+                        ? legacyDraftNewsCollection.doc(docId)
+                        : newsCollection.doc(docId);
+                    batch.set(ref, {
+                        category,
+                        updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+                    }, { merge: true });
+                });
+            });
+            closeBulkCategoryDialog();
+            const targetMessage = categorySelectionMode === 'draft' ? publishSuccess : liveSuccess;
+            showTemporaryMessage(targetMessage, selected.length + ' haberin kategorisi ' + category + ' olarak guncellendi.');
+            if (categorySelectionMode === 'draft') {
+                await loadDraftNews();
+            } else {
+                await loadLiveNews();
+            }
+        } catch (error) {
+            if (bulkCategoryNote) bulkCategoryNote.textContent = 'Kategori guncellenemedi: ' + error.message;
+        } finally {
+            if (bulkCategorySaveBtn) {
+                bulkCategorySaveBtn.disabled = false;
+                bulkCategorySaveBtn.textContent = oldText;
+            }
+        }
+    }
+
+    if (summarizeSelectedDraftsBtn) {
+        summarizeSelectedDraftsBtn.addEventListener('click', summarizeSelectedDrafts);
+    }
+    if (categorizeSelectedDraftsBtn) {
+        categorizeSelectedDraftsBtn.addEventListener('click', () => openBulkCategoryDialog('draft'));
+    }
+    if (categorizeSelectedLiveBtn) {
+        categorizeSelectedLiveBtn.addEventListener('click', () => openBulkCategoryDialog('live'));
+    }
+    if (bulkCategoryForm) {
+        bulkCategoryForm.addEventListener('submit', applyBulkCategory);
+    }
+    if (bulkCategoryCloseBtn) {
+        bulkCategoryCloseBtn.addEventListener('click', closeBulkCategoryDialog);
+    }
+    if (bulkCategoryCancelBtn) {
+        bulkCategoryCancelBtn.addEventListener('click', closeBulkCategoryDialog);
+    }
+    if (mobileBulkClearBtn) {
+        mobileBulkClearBtn.addEventListener('click', () => {
+            if (activeSelectionMode() === 'draft') {
+                selectedDrafts.clear();
+                loadDraftNews();
+            } else {
+                selectedLiveNews.clear();
+                loadLiveNews();
+            }
+        });
+    }
+    if (mobileBulkAiBtn) {
+        mobileBulkAiBtn.addEventListener('click', summarizeSelectedDrafts);
+    }
+    if (mobileBulkCategoryBtn) {
+        mobileBulkCategoryBtn.addEventListener('click', () => openBulkCategoryDialog(activeSelectionMode()));
+    }
+    if (mobileBulkPrimaryBtn) {
+        mobileBulkPrimaryBtn.addEventListener('click', () => {
+            if (activeSelectionMode() === 'draft') {
+                publishSelectedDrafts();
+            } else {
+                unpublishSelectedLiveNews();
+            }
+        });
+    }
+    if (mobileBulkDeleteBtn) {
+        mobileBulkDeleteBtn.addEventListener('click', () => {
+            if (activeSelectionMode() === 'draft') {
+                deleteSelectedDrafts();
+            } else {
+                deleteSelectedLiveNews();
+            }
+        });
     }
 
     if (selectVisibleDraftsBtn) {
         selectVisibleDraftsBtn.addEventListener('click', () => {
+            activeMobileSelection = 'draft';
             visibleDrafts.forEach(({ doc, data, legacy }) => {
                 selectedDrafts.set(draftSelectionKey(doc.id, legacy), { docId: doc.id, data, legacy });
             });
@@ -703,16 +1016,15 @@ window.addEventListener('load', () => {
         if (!confirm(selected.length + ' canli haber yayindan kaldirilsin mi? Haberler taslak listesine gececek.')) return;
 
         try {
-            const batch = db.batch();
-            selected.forEach(({ docId }) => {
-                batch.set(newsCollection.doc(docId), {
-                    published: false,
-                    status: 'rejected',
-                    unpublishedAt: firebase.firestore.FieldValue.serverTimestamp()
-                }, { merge: true });
+            await commitInChunks(selected, (batch, chunk) => {
+                chunk.forEach(({ docId }) => {
+                    batch.set(newsCollection.doc(docId), {
+                        published: false,
+                        status: 'rejected',
+                        unpublishedAt: firebase.firestore.FieldValue.serverTimestamp()
+                    }, { merge: true });
+                });
             });
-
-            await batch.commit();
             selectedLiveNews.clear();
             showTemporaryMessage(liveSuccess, selected.length + ' haber yayindan kaldirildi.');
             await Promise.all([loadLiveNews(), loadDraftNews()]);
@@ -727,13 +1039,13 @@ window.addEventListener('load', () => {
         if (!confirm(selected.length + ' canli haber KALICI olarak silinecek. Bu islem geri alinamaz. Devam edilsin mi?')) return;
 
         try {
-            const batch = db.batch();
-            selected.forEach(({ docId }) => batch.delete(newsCollection.doc(docId)));
-            await batch.commit();
-
+            await commitInChunks(selected, (batch, chunk) => {
+                chunk.forEach(({ docId }) => batch.delete(newsCollection.doc(docId)));
+                appendDeletionAudit(batch, chunk.length, 'live');
+            });
             selectedLiveNews.clear();
             showTemporaryMessage(liveSuccess, selected.length + ' canli haber kalici olarak silindi.');
-            await loadLiveNews();
+            await Promise.all([loadLiveNews(), loadDailyActivityStats()]);
         } catch (e) {
             alert('Canli haberler silinemedi: ' + e.message);
         }
@@ -741,6 +1053,7 @@ window.addEventListener('load', () => {
 
     if (selectVisibleLiveBtn) {
         selectVisibleLiveBtn.addEventListener('click', () => {
+            activeMobileSelection = 'live';
             visibleLiveNews.forEach(({ doc, data }) => {
                 selectedLiveNews.set(doc.id, { docId: doc.id, data });
             });
@@ -775,14 +1088,6 @@ window.addEventListener('load', () => {
         liveListContainer.innerHTML = '';
         if (liveCount) liveCount.textContent = liveDocs.length;
         if (statLiveCount) statLiveCount.textContent = liveDocs.length;
-        if (statTodayPublished) {
-            const now = new Date();
-            const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
-            statTodayPublished.textContent = liveDocs.filter(({ data }) => {
-                const date = data.publishedAt;
-                return date && typeof date.toMillis === 'function' && date.toMillis() >= startOfToday;
-            }).length;
-        }
         syncSelectedLiveNews(liveDocs);
 
         if (liveDocs.length === 0) {

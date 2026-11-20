@@ -7,6 +7,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart'; // <-- YENİ: Kullanıcıyı bulmak için
 import 'package:firebase_messaging/firebase_messaging.dart'; // <-- YENİ: Bildirim Token'ı için
 import 'dart:ui' as ui;
+import 'package:ozet_app/core/errors/app_error_handler.dart';
 import 'package:ozet_app/models/daily_score_entry.dart';
 import 'package:ozet_app/screens/daily_score_screen.dart';
 import 'package:ozet_app/screens/daily_score_history_screen.dart';
@@ -14,6 +15,7 @@ import 'package:ozet_app/screens/settings_screen.dart';
 import 'package:ozet_app/services/daily_score_storage.dart';
 import 'package:ozet_app/services/news_read_storage.dart';
 import 'package:ozet_app/services/news_feed_service.dart';
+import 'package:ozet_app/services/notification_preferences_service.dart';
 import 'package:ozet_app/widgets/paginated_news_feed.dart';
 import 'package:ozet_app/theme/app_theme_palette.dart';
 import 'package:ozet_app/widgets/partner_widget.dart';
@@ -37,6 +39,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   final ScrollController _scrollController = ScrollController();
   final DailyScoreStorage _dailyScoreStorage = DailyScoreStorage();
   final NewsReadStorage _newsReadStorage = NewsReadStorage();
+  final NotificationPreferencesService _notificationPermissionService =
+      NotificationPreferencesService();
 
   DailyScoreEntry? _todayScore;
   bool _isDailyScoreLoading = true;
@@ -51,13 +55,24 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     WidgetsBinding.instance.addObserver(this);
     _loadTodayScore();
     _loadReadNewsIds();
+    _scheduleNotificationPermissionOffer();
 
     // === 1. BİLDİRİM TOKEN'INI KAYDET ===
     // Uygulama açılınca bu cihazın kimliğini veritabanına yazarız.
     // Böylece partnerin sana bildirim atabilir.
     _saveDeviceToken();
     _tokenRefreshSubscription = FirebaseMessaging.instance.onTokenRefresh
-        .listen(_storeDeviceToken);
+        .listen(
+          _storeDeviceToken,
+          onError: (Object error, StackTrace stackTrace) => unawaited(
+            AppErrorHandler.capture(
+              error,
+              stackTrace,
+              operation: 'notifications.token_refresh',
+              fallbackMessage: 'Bildirim bağlantısı yenilenemedi.',
+            ),
+          ),
+        );
 
     // === 2. SCROLL DİNLEYİCİSİ ===
     // Sayfa kaydırıldıkça AppBar'ın bulanıklaşmasını sağlar
@@ -70,6 +85,204 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     });
   }
 
+  void _scheduleNotificationPermissionOffer() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      unawaited(
+        Future<void>.delayed(const Duration(seconds: 3), () async {
+          if (!mounted || ModalRoute.of(context)?.isCurrent != true) return;
+          await _offerNotificationPermission();
+        }),
+      );
+    });
+  }
+
+  Future<void> _offerNotificationPermission() async {
+    try {
+      if (!await _notificationPermissionService.shouldOfferPermissionPrompt()) {
+        return;
+      }
+      await _notificationPermissionService.markPermissionPromptShown();
+      if (!mounted || ModalRoute.of(context)?.isCurrent != true) return;
+
+      final accepted = await showModalBottomSheet<bool>(
+        context: context,
+        useSafeArea: true,
+        backgroundColor: Colors.transparent,
+        barrierColor: Colors.black.withValues(alpha: 0.34),
+        builder: (sheetContext) {
+          final isDark = Theme.of(sheetContext).brightness == Brightness.dark;
+          final surface = isDark ? AppThemePalette.darkSurface : Colors.white;
+          final text = isDark
+              ? AppThemePalette.darkText
+              : const Color(0xFF111114);
+          final muted = isDark
+              ? AppThemePalette.darkMuted
+              : const Color(0xFF6E6E73);
+          final border = isDark
+              ? Colors.white.withValues(alpha: 0.10)
+              : const Color(0xFFE7E7EA);
+
+          return Container(
+            margin: const EdgeInsets.fromLTRB(10, 0, 10, 10),
+            padding: const EdgeInsets.fromLTRB(22, 10, 22, 18),
+            decoration: BoxDecoration(
+              color: surface.withValues(alpha: 0.96),
+              borderRadius: BorderRadius.circular(26),
+              border: Border.all(color: border),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: isDark ? 0.28 : 0.10),
+                  blurRadius: 28,
+                  offset: const Offset(0, 12),
+                ),
+              ],
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: 38,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: muted.withValues(alpha: 0.35),
+                    borderRadius: BorderRadius.circular(99),
+                  ),
+                ),
+                const SizedBox(height: 20),
+                Container(
+                  width: 52,
+                  height: 52,
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(
+                    color: isDark
+                        ? AppThemePalette.darkSurfaceStrong
+                        : const Color(0xFFF4F4F6),
+                    shape: BoxShape.circle,
+                    border: Border.all(color: border),
+                  ),
+                  child: Icon(
+                    Icons.notifications_none_rounded,
+                    size: 25,
+                    color: text,
+                  ),
+                ),
+                const SizedBox(height: 15),
+                Text(
+                  'Gündemi kaçırma',
+                  textAlign: TextAlign.center,
+                  style: GoogleFonts.inter(
+                    color: text,
+                    fontSize: 20,
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: 0,
+                  ),
+                ),
+                const SizedBox(height: 7),
+                Text(
+                  'Günün özeti hazır olduğunda ve partnerin sana bir şey bıraktığında haber verelim.',
+                  textAlign: TextAlign.center,
+                  style: GoogleFonts.inter(
+                    color: muted,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w400,
+                    height: 1.4,
+                    letterSpacing: 0,
+                  ),
+                ),
+                const SizedBox(height: 20),
+                SizedBox(
+                  width: double.infinity,
+                  height: 48,
+                  child: FilledButton.icon(
+                    onPressed: () => Navigator.of(sheetContext).pop(true),
+                    style: FilledButton.styleFrom(
+                      backgroundColor: text,
+                      foregroundColor: surface,
+                      elevation: 0,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(15),
+                      ),
+                      textStyle: GoogleFonts.inter(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w700,
+                        letterSpacing: 0,
+                      ),
+                    ),
+                    icon: const Icon(
+                      Icons.notifications_active_outlined,
+                      size: 18,
+                    ),
+                    label: const Text('Bildirimleri aç'),
+                  ),
+                ),
+                const SizedBox(height: 4),
+                TextButton(
+                  onPressed: () => Navigator.of(sheetContext).pop(false),
+                  style: TextButton.styleFrom(
+                    foregroundColor: muted,
+                    textStyle: GoogleFonts.inter(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                      letterSpacing: 0,
+                    ),
+                  ),
+                  child: const Text('Şimdi değil'),
+                ),
+              ],
+            ),
+          );
+        },
+      );
+
+      if (accepted == true && mounted) {
+        await _requestNotificationPermission();
+      }
+    } catch (error, stackTrace) {
+      await AppErrorHandler.capture(
+        error,
+        stackTrace,
+        operation: 'notifications.permission_offer',
+        fallbackMessage: 'Bildirim izni şu anda kontrol edilemedi.',
+      );
+    }
+  }
+
+  Future<void> _requestNotificationPermission() async {
+    try {
+      final state = await _notificationPermissionService
+          .requestPermissionAndConfigure();
+      if (!mounted) return;
+
+      if (state == AppNotificationPermission.granted) {
+        await _saveDeviceToken();
+        if (!mounted) return;
+        AppFeedback.show(
+          context,
+          'Bildirimler açıldı.',
+          type: AppFeedbackType.success,
+        );
+      } else {
+        AppFeedback.show(
+          context,
+          'Bildirim izni kapalı kaldı. Daha sonra Ayarlar bölümünden değiştirebilirsin.',
+        );
+      }
+    } catch (error, stackTrace) {
+      final failure = await AppErrorHandler.capture(
+        error,
+        stackTrace,
+        operation: 'notifications.request_permission',
+        fallbackMessage: 'Bildirim izni şu anda alınamadı.',
+      );
+      if (!mounted) return;
+      AppFeedback.showFailure(
+        context,
+        failure,
+        onRetry: _requestNotificationPermission,
+      );
+    }
+  }
+
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
@@ -78,13 +291,25 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   }
 
   Future<void> _loadTodayScore() async {
-    final entry = await _dailyScoreStorage.getForDate(DateTime.now());
-    if (!mounted) return;
+    try {
+      final entry = await _dailyScoreStorage.getForDate(DateTime.now());
+      if (!mounted) return;
 
-    setState(() {
-      _todayScore = entry;
-      _isDailyScoreLoading = false;
-    });
+      setState(() {
+        _todayScore = entry;
+        _isDailyScoreLoading = false;
+      });
+    } catch (error, stackTrace) {
+      final failure = await AppErrorHandler.capture(
+        error,
+        stackTrace,
+        operation: 'daily_score.load_today',
+        fallbackMessage: 'Günün puanı yüklenemedi.',
+      );
+      if (!mounted) return;
+      setState(() => _isDailyScoreLoading = false);
+      AppFeedback.showFailure(context, failure, onRetry: _loadTodayScore);
+    }
   }
 
   Future<void> _loadReadNewsIds() async {
@@ -94,8 +319,14 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
       // Yukleme surerken acilan bir haber varsa onun durumunu kaybetmeyiz.
       setState(() => _readNewsIds = {...storedIds, ..._readNewsIds});
-    } on Object {
+    } catch (error, stackTrace) {
       // Yerel okundu verisi haber akisinin acilmasini engellememeli.
+      await AppErrorHandler.capture(
+        error,
+        stackTrace,
+        operation: 'news_read.load',
+        fallbackMessage: 'Okundu bilgileri yüklenemedi.',
+      );
     }
   }
 
@@ -109,8 +340,14 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   Future<void> _persistReadNews(String newsId) async {
     try {
       await _newsReadStorage.markRead(newsId);
-    } on Object {
+    } catch (error, stackTrace) {
       // Oturumdaki gorsel durum korunur; kalici yazma sonraki okumada yenilenir.
+      await AppErrorHandler.capture(
+        error,
+        stackTrace,
+        operation: 'news_read.save',
+        fallbackMessage: 'Okundu bilgisi kaydedilemedi.',
+      );
     }
   }
 
@@ -121,7 +358,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       ),
     );
     if (entry == null || !mounted) return;
+    await _saveDailyScore(entry);
+  }
 
+  Future<void> _saveDailyScore(DailyScoreEntry entry) async {
     try {
       await _dailyScoreStorage.save(entry);
       if (!mounted) return;
@@ -131,12 +371,18 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         'Gün kartın oluşturuldu.',
         type: AppFeedbackType.success,
       );
-    } catch (_) {
+    } catch (error, stackTrace) {
+      final failure = await AppErrorHandler.capture(
+        error,
+        stackTrace,
+        operation: 'daily_score.save',
+        fallbackMessage: 'Gün kartı kaydedilemedi.',
+      );
       if (!mounted) return;
-      AppFeedback.show(
+      AppFeedback.showFailure(
         context,
-        'Gün kartı kaydedilemedi. Tekrar deneyebilirsin.',
-        type: AppFeedbackType.error,
+        failure,
+        onRetry: () => _saveDailyScore(entry),
       );
     }
   }
@@ -159,21 +405,36 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       if (token != null) {
         await _storeDeviceToken(token);
       }
-    } catch (_) {
+    } catch (error, stackTrace) {
       // Token sonraki uygulama açılışında veya yenilendiğinde tekrar kaydedilir.
+      await AppErrorHandler.capture(
+        error,
+        stackTrace,
+        operation: 'notifications.get_token',
+        fallbackMessage: 'Bildirim bağlantısı kurulamadı.',
+      );
     }
   }
 
   Future<void> _storeDeviceToken(String token) async {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return;
-    await FirebaseFirestore.instance
-        .collection('user_private')
-        .doc(user.uid)
-        .set({
-          'fcmToken': token,
-          'tokenUpdatedAt': FieldValue.serverTimestamp(),
-        }, SetOptions(merge: true));
+    try {
+      await FirebaseFirestore.instance
+          .collection('user_private')
+          .doc(user.uid)
+          .set({
+            'fcmToken': token,
+            'tokenUpdatedAt': FieldValue.serverTimestamp(),
+          }, SetOptions(merge: true));
+    } catch (error, stackTrace) {
+      await AppErrorHandler.capture(
+        error,
+        stackTrace,
+        operation: 'notifications.store_token',
+        fallbackMessage: 'Bildirim bağlantısı kaydedilemedi.',
+      );
+    }
   }
 
   void _openSourceUrl(String sourceUrl, String title) {

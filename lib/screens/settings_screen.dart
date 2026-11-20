@@ -1,10 +1,14 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart'; // <-- BU SATIR ÇOK ÖNEMLİ, EKLENDİ
 import 'package:google_fonts/google_fonts.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
+import 'package:ozet_app/core/errors/app_error_handler.dart';
+import 'package:ozet_app/core/errors/app_failure.dart';
 import 'package:ozet_app/screens/auth_screen.dart';
+import 'package:ozet_app/screens/onboarding_screen.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:ozet_app/main.dart'; // themeNotifier için şart!
 import 'package:ozet_app/theme/app_theme_palette.dart';
@@ -32,6 +36,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool partnerBildirimleri = true;
   final NotificationPreferencesService _notificationPreferencesService =
       NotificationPreferencesService();
+  AppNotificationPermission _notificationPermission =
+      AppNotificationPermission.notDetermined;
+  bool _isNotificationPermissionLoading = false;
   final FirebaseFunctions _functions = FirebaseFunctions.instanceFor(
     region: 'europe-west1',
   );
@@ -75,35 +82,77 @@ class _SettingsScreenState extends State<SettingsScreen> {
     super.dispose();
   }
 
+  Future<AppFailure> _captureFailure(
+    Object error,
+    StackTrace stackTrace, {
+    required String operation,
+    required String fallbackMessage,
+  }) {
+    return AppErrorHandler.capture(
+      error,
+      stackTrace,
+      operation: operation,
+      fallbackMessage: fallbackMessage,
+    );
+  }
+
+  void _showFailure(AppFailure failure, {VoidCallback? onRetry}) {
+    if (!mounted) return;
+    AppFeedback.showFailure(
+      context,
+      failure,
+      onRetry: onRetry,
+      onSignIn: _signOut,
+    );
+  }
+
   // Yerel tercihleri okur; eski akşam özeti ayarını yeni hatırlatmaya taşır.
   Future<void> _loadSettings() async {
-    final preferences = await _notificationPreferencesService.load();
-    if (!mounted) return;
-    setState(() {
-      gununOzeti = preferences.morningDigest;
-      aksamHatirlatmasi = preferences.eveningCheckIn;
-      partnerBildirimleri = preferences.partnerUpdates;
-    });
+    try {
+      final preferences = await _notificationPreferencesService.load();
+      final permission = await _notificationPreferencesService
+          .permissionState();
+      if (!mounted) return;
+      setState(() {
+        gununOzeti = preferences.morningDigest;
+        aksamHatirlatmasi = preferences.eveningCheckIn;
+        partnerBildirimleri = preferences.partnerUpdates;
+        _notificationPermission = permission;
+      });
+    } catch (error, stackTrace) {
+      await _captureFailure(
+        error,
+        stackTrace,
+        operation: 'settings.load_preferences',
+        fallbackMessage: 'Bildirim tercihleri yüklenemedi.',
+      );
+    }
   }
 
   // Kullanıcının Firestore'da daha önce oluşturduğu eşleşme kodu, eşleştirildiği partner ve takma ad bilgisini kontrol eder.
   Future<void> _checkExistingCode() async {
     if (currentUser == null) return;
-    var doc = await FirebaseFirestore.instance
-        .collection('users')
-        .doc(currentUser!.uid)
-        .get();
-    if (doc.exists && doc.data() != null) {
+    try {
+      final doc = await FirebaseFirestore.instance
+          .collection('users')
+          .doc(currentUser!.uid)
+          .get();
+      if (!mounted || !doc.exists || doc.data() == null) return;
+
       final data = doc.data()!;
-      if (doc.data()!.containsKey('pairCode')) {
-        setState(() {
-          _generatedCode = data['pairCode'];
-        });
-      }
       setState(() {
+        _generatedCode = data['pairCode'] as String?;
         _pairedWith = data['pairedWith'] as String?;
         _partnerNickname = data['partnerNickname'] as String?;
       });
+    } catch (error, stackTrace) {
+      final failure = await _captureFailure(
+        error,
+        stackTrace,
+        operation: 'pairing.load_state',
+        fallbackMessage: 'Eşleşme bilgileri yüklenemedi.',
+      );
+      _showFailure(failure, onRetry: _checkExistingCode);
     }
   }
 
@@ -141,15 +190,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
       }
       if (!mounted) return;
       setState(() => _generatedCode = code);
-    } catch (_) {
-      if (!mounted) return;
-      AppFeedback.show(
-        context,
-        'Eşleşme kodu oluşturulamadı.',
-        type: AppFeedbackType.error,
-        actionLabel: 'Tekrar dene',
-        onAction: _generatePairCode,
+    } catch (error, stackTrace) {
+      final failure = await _captureFailure(
+        error,
+        stackTrace,
+        operation: 'pairing.create_code',
+        fallbackMessage: 'Eşleşme kodu oluşturulamadı.',
       );
+      _showFailure(failure, onRetry: _generatePairCode);
     } finally {
       if (mounted) setState(() => _isPairingLoading = false);
     }
@@ -197,29 +245,27 @@ class _SettingsScreenState extends State<SettingsScreen> {
         'Eşleşme başarılı.',
         type: AppFeedbackType.success,
       );
-    } on FirebaseFunctionsException catch (error) {
-      if (!mounted) return;
-      final message = switch (error.code) {
-        'not-found' => 'Eşleşme kodu bulunamadı.',
-        'failed-precondition' => error.message ?? 'Eşleşme tamamlanamadı.',
-        _ => 'Eşleşme tamamlanamadı.',
-      };
-      AppFeedback.show(
-        context,
-        message,
-        type: AppFeedbackType.error,
-        actionLabel: 'Tekrar dene',
-        onAction: _enterPairCode,
+    } catch (error, stackTrace) {
+      var failure = await _captureFailure(
+        error,
+        stackTrace,
+        operation: 'pairing.join_with_code',
+        fallbackMessage: 'Eşleşme tamamlanamadı.',
       );
-    } catch (_) {
-      if (!mounted) return;
-      AppFeedback.show(
-        context,
-        'Eşleşme tamamlanamadı.',
-        type: AppFeedbackType.error,
-        actionLabel: 'Tekrar dene',
-        onAction: _enterPairCode,
-      );
+      if (error is FirebaseFunctionsException) {
+        failure = switch (error.code) {
+          'not-found' => failure.copyWith(
+            userMessage: 'Eşleşme kodu bulunamadı.',
+            recoveryAction: AppRecoveryAction.none,
+          ),
+          'failed-precondition' => failure.copyWith(
+            userMessage: 'Bu kodla eşleşme tamamlanamadı.',
+            recoveryAction: AppRecoveryAction.none,
+          ),
+          _ => failure,
+        };
+      }
+      _showFailure(failure, onRetry: _enterPairCode);
     } finally {
       if (mounted) setState(() => _isPairingLoading = false);
     }
@@ -271,14 +317,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     ? 'Takma ad kaldırıldı.'
                     : 'Takma ad kaydedildi.',
               );
-            } catch (_) {
-              if (mounted) {
-                AppFeedback.show(
-                  context,
-                  'Takma ad güncellenemedi. Lütfen tekrar dene.',
-                  type: AppFeedbackType.error,
-                );
-              }
+            } catch (error, stackTrace) {
+              final failure = await _captureFailure(
+                error,
+                stackTrace,
+                operation: 'pairing.update_nickname',
+                fallbackMessage: 'Takma ad güncellenemedi.',
+              );
+              _showFailure(failure);
               rethrow;
             }
 
@@ -386,15 +432,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
         'Eşleşme bitirildi.',
         type: AppFeedbackType.success,
       );
-    } catch (_) {
-      if (!mounted) return;
-      AppFeedback.show(
-        context,
-        'Eşleşme bitirilemedi.',
-        type: AppFeedbackType.error,
-        actionLabel: 'Tekrar dene',
-        onAction: _unpairPartner,
+    } catch (error, stackTrace) {
+      final failure = await _captureFailure(
+        error,
+        stackTrace,
+        operation: 'pairing.end',
+        fallbackMessage: 'Eşleşme bitirilemedi.',
       );
+      _showFailure(failure, onRetry: _unpairPartner);
     } finally {
       if (mounted) setState(() => _isPairingLoading = false);
     }
@@ -486,6 +531,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         subtitle: 'Yalnızca gerekli bildirimleri seç.',
                         palette: palette,
                         children: [
+                          _buildNotificationPermissionControl(palette),
+                          _buildSettingsDivider(palette, indent: 50),
                           _buildNotificationOption(
                             icon: Icons.wb_sunny_outlined,
                             title: 'Günün Özeti',
@@ -524,6 +571,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           ),
                         ],
                       ),
+                      if (kDebugMode) ...[
+                        const SizedBox(height: 8),
+                        _buildSettingsCard(
+                          title: 'Geliştirici',
+                          subtitle: 'Yalnızca debug sürümünde görünür.',
+                          palette: palette,
+                          children: [_buildOnboardingPreviewOption(palette)],
+                        ),
+                      ],
                       if (currentUser != null) ...[
                         const SizedBox(height: 20),
                         _buildSignOutButton(palette),
@@ -537,6 +593,53 @@ class _SettingsScreenState extends State<SettingsScreen> {
         ],
       ),
     );
+  }
+
+  void _openOnboardingPreview() {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => const OnboardingScreen(previewMode: true),
+      ),
+    );
+  }
+
+  Future<void> _requestNotificationPermission() async {
+    if (_isNotificationPermissionLoading) return;
+    setState(() => _isNotificationPermissionLoading = true);
+
+    try {
+      final permission = await _notificationPreferencesService
+          .requestPermissionAndConfigure();
+      if (!mounted) return;
+      setState(() {
+        _notificationPermission = permission;
+        _isNotificationPermissionLoading = false;
+      });
+
+      if (permission == AppNotificationPermission.granted) {
+        AppFeedback.show(
+          context,
+          'Bildirimler açıldı.',
+          type: AppFeedbackType.success,
+        );
+      } else {
+        AppFeedback.show(
+          context,
+          'Bildirim izni kapalı. Cihaz ayarlarından yeniden açabilirsin.',
+        );
+      }
+    } catch (error, stackTrace) {
+      if (mounted) {
+        setState(() => _isNotificationPermissionLoading = false);
+      }
+      final failure = await _captureFailure(
+        error,
+        stackTrace,
+        operation: 'settings.request_notification_permission',
+        fallbackMessage: 'Bildirim izni şu anda alınamadı.',
+      );
+      _showFailure(failure, onRetry: _requestNotificationPermission);
+    }
   }
 
   // Tercihi önce ekranda uygular; uzak kayıt başarısızsa geri alıp yeniden deneme sunar.
@@ -565,15 +668,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
     applyValue(value);
     try {
       await _notificationPreferencesService.update(key, value);
-    } catch (_) {
+    } catch (error, stackTrace) {
       applyValue(previousValue);
-      if (!mounted) return;
-      AppFeedback.show(
-        context,
-        'Bildirim tercihi kaydedilemedi.',
-        type: AppFeedbackType.error,
-        actionLabel: 'Tekrar dene',
-        onAction: () => _saveNotificationSetting(key, value),
+      final failure = await _captureFailure(
+        error,
+        stackTrace,
+        operation: 'settings.update_notification',
+        fallbackMessage: 'Bildirim tercihi kaydedilemedi.',
+      );
+      _showFailure(
+        failure,
+        onRetry: () => _saveNotificationSetting(key, value),
       );
     }
   }
@@ -749,7 +854,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               opacity: animation,
               child: SizeTransition(
                 sizeFactor: animation,
-                axisAlignment: -1,
+                alignment: AlignmentDirectional.topStart,
                 child: child,
               ),
             );
@@ -1385,6 +1490,72 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
+  Widget _buildOnboardingPreviewOption(_SettingsPalette palette) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        key: const ValueKey('settings-onboarding-preview'),
+        onTap: _openOnboardingPreview,
+        borderRadius: BorderRadius.circular(12),
+        splashColor: palette.accent.withValues(alpha: 0.05),
+        highlightColor: palette.accent.withValues(alpha: 0.025),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 9),
+          child: Row(
+            children: [
+              Container(
+                width: 36,
+                height: 36,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  color: palette.controlSurface,
+                  shape: BoxShape.circle,
+                  border: Border.all(color: palette.border),
+                ),
+                child: Icon(
+                  Icons.view_carousel_outlined,
+                  size: 18,
+                  color: palette.text,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Onboarding’i önizle',
+                      style: GoogleFonts.inter(
+                        color: palette.text,
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                        height: 1.15,
+                        letterSpacing: 0,
+                      ),
+                    ),
+                    const SizedBox(height: 3),
+                    Text(
+                      'Tam ekran başlangıç akışını yeniden aç',
+                      style: GoogleFonts.inter(
+                        color: palette.muted,
+                        fontSize: 11.5,
+                        fontWeight: FontWeight.w400,
+                        height: 1.2,
+                        letterSpacing: 0,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 8),
+              Icon(Icons.chevron_right_rounded, size: 20, color: palette.muted),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   // Kullanıcıyı uygulamadan çıkış yaptıran butonu oluşturur.
   Widget _buildSignOutButton(_SettingsPalette palette) {
     return SizedBox(
@@ -1534,6 +1705,118 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ),
               child: Text(label, textAlign: TextAlign.center),
             ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildNotificationPermissionControl(_SettingsPalette palette) {
+    final isGranted =
+        _notificationPermission == AppNotificationPermission.granted;
+    final isDenied =
+        _notificationPermission == AppNotificationPermission.denied;
+    final canRequest =
+        _notificationPermission == AppNotificationPermission.notDetermined &&
+        !_isNotificationPermissionLoading;
+    final subtitle = isGranted
+        ? 'Cihaz bildirimleri açık'
+        : isDenied
+        ? 'Cihaz ayarlarından yeniden açabilirsin'
+        : 'Hazır olduğunda izin verebilirsin';
+
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: canRequest ? _requestNotificationPermission : null,
+        borderRadius: BorderRadius.circular(12),
+        splashColor: palette.accent.withValues(alpha: 0.05),
+        highlightColor: palette.accent.withValues(alpha: 0.025),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 9),
+          child: Row(
+            children: [
+              Container(
+                width: 36,
+                height: 36,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  color: palette.controlSurface,
+                  shape: BoxShape.circle,
+                  border: Border.all(color: palette.border),
+                ),
+                child: Icon(
+                  isGranted
+                      ? Icons.notifications_active_outlined
+                      : Icons.notifications_none_rounded,
+                  size: 18,
+                  color: palette.text,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Bildirim izni',
+                      style: GoogleFonts.inter(
+                        color: palette.text,
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                        height: 1.15,
+                        letterSpacing: 0,
+                      ),
+                    ),
+                    const SizedBox(height: 3),
+                    Text(
+                      subtitle,
+                      style: GoogleFonts.inter(
+                        color: palette.muted,
+                        fontSize: 11.5,
+                        fontWeight: FontWeight.w400,
+                        height: 1.2,
+                        letterSpacing: 0,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 8),
+              if (_isNotificationPermissionLoading)
+                SizedBox.square(
+                  dimension: 20,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    color: palette.text,
+                  ),
+                )
+              else
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 6,
+                  ),
+                  decoration: BoxDecoration(
+                    color: palette.controlSurface,
+                    borderRadius: BorderRadius.circular(99),
+                    border: Border.all(color: palette.border),
+                  ),
+                  child: Text(
+                    isGranted
+                        ? 'Açık'
+                        : isDenied
+                        ? 'Kapalı'
+                        : 'İzin ver',
+                    style: GoogleFonts.inter(
+                      color: isDenied ? palette.muted : palette.text,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w700,
+                      letterSpacing: 0,
+                    ),
+                  ),
+                ),
+            ],
           ),
         ),
       ),

@@ -353,7 +353,7 @@ p {
 
 .stats-grid {
   display: grid;
-  grid-template-columns: repeat(6, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 12px;
 }
 
@@ -458,13 +458,13 @@ p {
   font-size: 12px;
 }
 
-.bulk-toolbar > button:not(.publish-action):not(.delete-btn):not(.warning-action) {
+.bulk-toolbar > button:not(.publish-action):not(.delete-btn):not(.warning-action):not(.ai-action):not(.category-action) {
   border: 1px solid #d7dee8;
   background: #fff;
   color: var(--navy);
 }
 
-.bulk-toolbar > button:not(.publish-action):not(.delete-btn):not(.warning-action):hover {
+.bulk-toolbar > button:not(.publish-action):not(.delete-btn):not(.warning-action):not(.ai-action):not(.category-action):hover {
   border-color: var(--navy);
 }
 
@@ -1087,5 +1087,207 @@ html {
 
   .page-section {
     scroll-margin-top: 132px;
+  }
+}
+
+
+/* Admin operations: denser metrics, selected rows and mobile bulk controls. */
+.accent-sky { --card-accent: #3b82a0; }
+.accent-slate { --card-accent: #475467; }
+
+.category-action {
+  background: #475467;
+}
+
+.category-action:hover {
+  background: #344054;
+}
+
+.news-admin-item.is-selected {
+  background: #f3f6f9;
+  box-shadow: inset 3px 0 0 var(--navy);
+}
+
+.bulk-dialog {
+  width: min(calc(100% - 28px), 440px);
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid #d8dee8;
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--ink);
+  box-shadow: 0 24px 70px rgba(10, 35, 66, 0.2);
+}
+
+.bulk-dialog::backdrop {
+  background: rgba(7, 20, 36, 0.48);
+}
+
+.bulk-dialog form {
+  padding: 22px;
+}
+
+.bulk-dialog label {
+  display: block;
+  margin: 18px 0 7px;
+  color: #344054;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.dialog-heading,
+.dialog-actions,
+.mobile-bulk-summary,
+.mobile-bulk-actions {
+  display: flex;
+  align-items: center;
+}
+
+.dialog-heading {
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.dialog-heading h2 {
+  margin: 0;
+  color: var(--navy);
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 21px;
+}
+
+.dialog-close,
+.mobile-dock-close {
+  display: inline-grid;
+  width: 34px;
+  height: 34px;
+  flex: 0 0 auto;
+  padding: 0;
+  place-items: center;
+  border: 1px solid #d8dee8;
+  border-radius: 50%;
+  background: #fff;
+  color: var(--navy);
+  font-size: 22px;
+  line-height: 1;
+}
+
+.dialog-close:hover,
+.mobile-dock-close:hover {
+  border-color: var(--navy);
+  background: #f7f9fb;
+}
+
+.dialog-note {
+  min-height: 18px;
+  margin: 7px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.dialog-actions {
+  margin-top: 18px;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.dialog-actions button {
+  width: auto;
+  min-width: 92px;
+  padding: 10px 14px;
+}
+
+.mobile-bulk-dock {
+  display: none;
+}
+
+@media (max-width: 620px) {
+  .desktop-bulk-action {
+    display: none;
+  }
+
+  .item-select-wrap {
+    padding-top: 1px;
+  }
+
+  .item-select-wrap input {
+    width: 24px;
+    height: 24px;
+  }
+
+  .news-admin-item {
+    min-height: 92px;
+  }
+
+  .mobile-bulk-dock {
+    position: fixed;
+    z-index: 60;
+    right: 10px;
+    bottom: calc(10px + env(safe-area-inset-bottom));
+    left: 10px;
+    display: grid;
+    gap: 9px;
+    padding: 11px;
+    border: 1px solid rgba(10, 35, 66, 0.14);
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.98);
+    box-shadow: 0 16px 44px rgba(10, 35, 66, 0.2);
+    opacity: 0;
+    pointer-events: none;
+    transform: translateY(calc(100% + 24px));
+    transition: opacity 180ms ease, transform 180ms ease;
+  }
+
+  .mobile-bulk-dock.is-visible {
+    opacity: 1;
+    pointer-events: auto;
+    transform: translateY(0);
+  }
+
+  .mobile-bulk-summary {
+    justify-content: space-between;
+    gap: 12px;
+  }
+
+  .mobile-bulk-summary strong,
+  .mobile-bulk-summary span {
+    display: block;
+  }
+
+  .mobile-bulk-summary strong {
+    color: var(--navy);
+    font-size: 13px;
+  }
+
+  .mobile-bulk-summary span {
+    margin-top: 1px;
+    color: var(--muted);
+    font-size: 11px;
+  }
+
+  .mobile-bulk-actions {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 6px;
+  }
+
+  .mobile-bulk-actions button {
+    min-height: 42px;
+    padding: 8px 5px;
+    font-size: 11px;
+    white-space: normal;
+  }
+
+  body:has(.mobile-bulk-dock.is-visible) .admin-content {
+    padding-bottom: 145px;
+  }
+}
+
+@media (max-width: 390px) {
+  .mobile-bulk-actions {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  body:has(.mobile-bulk-dock.is-visible) .admin-content {
+    padding-bottom: 190px;
   }
 }

@@ -27,6 +27,8 @@ class NotificationPreferences {
   }
 }
 
+enum AppNotificationPermission { notDetermined, granted, denied }
+
 class NotificationPreferencesService {
   NotificationPreferencesService({
     FirebaseAuth? auth,
@@ -39,6 +41,8 @@ class NotificationPreferencesService {
   static const String morningKey = 'gununOzeti';
   static const String eveningKey = 'aksamHatirlatmasi';
   static const String partnerKey = 'partnerBildirimleri';
+  static const String permissionPromptShownKey =
+      'notificationPermissionPromptShown';
 
   final FirebaseAuth? _auth;
   final FirebaseFirestore? _firestore;
@@ -64,9 +68,87 @@ class NotificationPreferencesService {
     };
 
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool(key, value);
-    await sync(updated);
+    final previousValue = switch (key) {
+      morningKey => current.morningDigest,
+      eveningKey => current.eveningCheckIn,
+      partnerKey => current.partnerUpdates,
+      _ => value,
+    };
+    final saved = await prefs.setBool(key, value);
+    if (!saved) {
+      throw StateError('Bildirim tercihi cihazda saklanamadı.');
+    }
+
+    try {
+      await sync(updated);
+    } catch (_) {
+      await prefs.setBool(key, previousValue);
+      rethrow;
+    }
     return updated;
+  }
+
+  Future<AppNotificationPermission> permissionState() async {
+    final messaging = _messaging ?? FirebaseMessaging.instance;
+    final settings = await messaging.getNotificationSettings();
+    return _mapAuthorizationStatus(settings.authorizationStatus);
+  }
+
+  Future<bool> hasPermissionPromptBeenShown() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getBool(permissionPromptShownKey) ?? false;
+  }
+
+  Future<bool> shouldOfferPermissionPrompt() async {
+    if (await hasPermissionPromptBeenShown()) return false;
+    return await permissionState() == AppNotificationPermission.notDetermined;
+  }
+
+  Future<void> markPermissionPromptShown() async {
+    final prefs = await SharedPreferences.getInstance();
+    final saved = await prefs.setBool(permissionPromptShownKey, true);
+    if (!saved) {
+      throw StateError('Bildirim izin tercihi cihazda saklanamadı.');
+    }
+  }
+
+  Future<AppNotificationPermission> requestPermissionAndConfigure() async {
+    await markPermissionPromptShown();
+    final messaging = _messaging ?? FirebaseMessaging.instance;
+    final settings = await messaging.requestPermission(
+      alert: true,
+      badge: true,
+      sound: true,
+    );
+    final state = _mapAuthorizationStatus(settings.authorizationStatus);
+    if (state == AppNotificationPermission.granted) {
+      await messaging.subscribeToTopic('all');
+      await sync();
+    }
+    return state;
+  }
+
+  Future<bool> configureIfAuthorized() async {
+    if (await permissionState() != AppNotificationPermission.granted) {
+      return false;
+    }
+    final messaging = _messaging ?? FirebaseMessaging.instance;
+    await messaging.subscribeToTopic('all');
+    await sync();
+    return true;
+  }
+
+  AppNotificationPermission _mapAuthorizationStatus(
+    AuthorizationStatus status,
+  ) {
+    return switch (status) {
+      AuthorizationStatus.authorized ||
+      AuthorizationStatus.provisional => AppNotificationPermission.granted,
+      AuthorizationStatus.notDetermined =>
+        AppNotificationPermission.notDetermined,
+      AuthorizationStatus.denied ||
+      AuthorizationStatus.deniedPermanently => AppNotificationPermission.denied,
+    };
   }
 
   Future<void> sync([NotificationPreferences? preferences]) async {

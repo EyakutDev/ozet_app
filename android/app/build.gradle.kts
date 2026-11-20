@@ -1,5 +1,16 @@
+import java.util.Properties
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
+val keystorePropertiesFile = rootProject.file("key.properties")
+val keystoreProperties = Properties()
+val hasReleaseSigning = keystorePropertiesFile.exists()
+if (hasReleaseSigning) {
+    keystorePropertiesFile.inputStream().use(keystoreProperties::load)
+}
+
+fun releaseProperty(name: String): String =
+    keystoreProperties.getProperty(name)?.takeIf { it.isNotBlank() }
+        ?: throw GradleException("Missing release signing property: $name")
 plugins {
     id("com.android.application")
     // START: FlutterFire Configuration
@@ -32,11 +43,24 @@ android {
         versionName = flutter.versionName
     }
 
+    signingConfigs {
+        if (hasReleaseSigning) {
+            create("release") {
+                keyAlias = releaseProperty("keyAlias")
+                keyPassword = releaseProperty("keyPassword")
+                storeFile = rootProject.file(releaseProperty("storeFile"))
+                storePassword = releaseProperty("storePassword")
+            }
+        }
+    }
+
     buildTypes {
         release {
-            // TODO: Add your own signing config for the release build.
-            // Signing with the debug keys for now, so `flutter run --release` works.
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = if (hasReleaseSigning) {
+                signingConfigs.getByName("release")
+            } else {
+                null
+            }
         }
     }
 }
@@ -47,6 +71,20 @@ kotlin {
     }
 }
 
+gradle.taskGraph.whenReady {
+    val releaseRequested = allTasks.any { task ->
+        task.name.contains("Release") &&
+            (task.name.startsWith("assemble") ||
+                task.name.startsWith("bundle") ||
+                task.name.startsWith("package"))
+    }
+    if (releaseRequested && !hasReleaseSigning) {
+        throw GradleException(
+            "Release signing is not configured. Create android/key.properties " +
+                "from android/key.properties.example.",
+        )
+    }
+}
 flutter {
     source = "../.."
 }
