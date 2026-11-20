@@ -45,7 +45,7 @@ Panelde RSS kaynakları ve manuel taslaklar yönetilir. Taslaklar yapay zekâyla
 
 ## Yerel geliştirme
 
-Mobil uygulama için Dart 3.11 veya üstünü içeren bir Flutter SDK ve bağlı bir cihaz ya da emülatör gerekir. Proje kökünde aşağıdaki komutları çalıştır.
+Mobil uygulama için bağlı bir cihaz ya da emülatör gerekir. GitHub Actions ile aynı ortam için Flutter `3.47.7` (Dart `3.13.5`) kullan. Proje kökünde aşağıdaki komutları çalıştır.
 
 ```sh
 flutter pub get
